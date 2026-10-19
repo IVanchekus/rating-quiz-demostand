@@ -1,0 +1,66 @@
+name: bridge-it-challenge
+x-backend: &backend
+  build: ./backend
+  image: bridge-it-challenge-backend:local
+  env_file: .env
+  restart: unless-stopped
+  depends_on:
+    migrate:
+      condition: service_completed_successfully
+
+services:
+  mysql:
+    image: mysql:8.4
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-bridge_quiz}
+      MYSQL_USER: ${MYSQL_USER:-bridge_quiz}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?Set MYSQL_PASSWORD in .env}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Set MYSQL_ROOT_PASSWORD in .env}
+    command: ["--character-set-server=utf8mb4", "--collation-server=utf8mb4_unicode_ci"]
+    volumes: ["mysql_data:/var/lib/mysql"]
+    healthcheck:
+      test: ["CMD-SHELL", "MYSQL_PWD=$$MYSQL_PASSWORD mysql --host=127.0.0.1 --protocol=TCP --user=$$MYSQL_USER --database=$$MYSQL_DATABASE -e 'SELECT 1'"]
+      interval: 5s
+      timeout: 5s
+      retries: 40
+    # No public MySQL port; API, bot and worker connect on the Compose network.
+
+  migrate:
+    build: ./backend
+    image: bridge-it-challenge-backend:local
+    env_file: .env
+    command: ["alembic", "upgrade", "head"]
+    restart: "no"
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+  api:
+    <<: *backend
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips", "*"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  bot:
+    <<: *backend
+    command: ["python", "-m", "app.bot.main"]
+    profiles: ["telegram"]
+
+  worker:
+    <<: *backend
+    command: ["python", "-m", "app.worker.expiration"]
+
+  frontend:
+    build: ./frontend
+    restart: unless-stopped
+    ports: ["${WEB_BIND_ADDRESS:-127.0.0.1}:${WEB_PORT:-8080}:80"]
+    depends_on:
+      api:
+        condition: service_healthy
+
+volumes:
+  mysql_data:
