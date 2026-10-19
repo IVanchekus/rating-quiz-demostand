@@ -64,17 +64,25 @@ class LeaderboardService:
                 ParticipantQuestion.participant_id.label("pid"),
                 func.sum(case((Answer.is_correct.is_(True), Answer.response_time_ms), else_=0)).label("time"),
             ).join(Answer).group_by(ParticipantQuestion.participant_id).subquery()
+            completed = Participant.status == "completed"
             rows = session.execute(select(
                 Participant, User, func.coalesce(closed.c.closed, 0),
             ).join(User).outerjoin(closed, closed.c.pid == Participant.id).outerjoin(speed, speed.c.pid == Participant.id).where(
                 Participant.room_id == room.id,
-            ).order_by(Participant.total_score.desc(), func.coalesce(speed.c.time, 0), Participant.joined_at, Participant.id))
+            ).order_by(
+                case((completed, 0), else_=1),
+                case((completed, Participant.total_score), else_=0).desc(),
+                case((completed, func.coalesce(speed.c.time, 0)), else_=0),
+                Participant.joined_at, Participant.id,
+            ))
             result = self._metadata(session, room)
             result["room_id"] = room.id
             result["leaderboard"] = [dict(
-                place=place, participant_id=p.id,
+                place=place if p.status == "completed" else None, participant_id=p.id,
                 display_name=f"@{u.username}" if u.username else (u.first_name.strip() or f"Участник {p.id}"),
-                total_score=p.total_score, closed_questions=int(count), completed=p.status == "completed",
+                total_score=p.total_score if p.status == "completed" else None,
+                closed_questions=int(count), completed=p.status == "completed",
+                status="expired" if p.status == "playing" and result["status"] in ("finished", "cancelled") else p.status,
             ) for place, (p, u, count) in enumerate(rows, 1)]
             return result
 
@@ -83,7 +91,8 @@ class LeaderboardService:
             room = self._room(session, identifier)
             count, completed, average, maximum = session.execute(select(
                 func.count(), func.sum(case((Participant.status == "completed", 1), else_=0)),
-                func.avg(Participant.total_score), func.max(Participant.total_score),
+                func.avg(case((Participant.status == "completed", Participant.total_score), else_=None)),
+                func.max(case((Participant.status == "completed", Participant.total_score), else_=None)),
             ).where(Participant.room_id == room.id)).one()
             return dict(participants_count=count, completed_count=int(completed or 0),
                         average_score=round(float(average or 0), 1), highest_score=maximum or 0)

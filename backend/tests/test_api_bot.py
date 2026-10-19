@@ -42,6 +42,7 @@ def test_api_validation_and_room_workflow(env):
 def test_bot_result_keyboard_no_repeat_and_no_position(env):
     state = activate(env, enroll(env))
     text, keyboard = render_state(state)
+    assert "На ответ:" not in text and "Ответ принимается до" not in text and "UTC" not in text
     for row in keyboard.inline_keyboard:
         assert len(row[0].callback_data.encode()) <= 64
         assert "correct" not in row[0].callback_data
@@ -51,6 +52,32 @@ def test_bot_result_keyboard_no_repeat_and_no_position(env):
     assert len(keyboard.inline_keyboard) == 1
     assert keyboard.inline_keyboard[0][0].callback_data == f"next:{state['assignment_id']}"
     assert "место" not in text.lower() and "place" not in text.lower()
+
+
+def test_pending_and_overdue_bot_messages_have_no_timer_and_keep_answers(env):
+    state = enroll(env)
+    for current in [state, activate(env, state)]:
+        text, keyboard = render_state(current)
+        assert "На ответ:" not in text and "Ответ принимается до" not in text
+        assert all(row[0].callback_data.startswith("answer:") for row in keyboard.inline_keyboard)
+    env["clock"].advance(seconds=60)
+    bot = AsyncMock()
+    from app.worker.expiration import tick
+    asyncio.run(tick(env["game"], bot))
+    bot.send_message.assert_not_awaited()
+    bot.edit_message_text.assert_not_awaited()
+    restored = env["game"].resume(123)
+    text, keyboard = render_state(restored)
+    assert restored["question_status"] == "active"
+    assert "Правильный ответ:" not in text and len(keyboard.inline_keyboard) == 2
+
+
+def test_public_api_hides_score_until_test_completed(env):
+    state = activate(env, enroll(env))
+    env["game"].submit_answer(123, state["assignment_id"], option(env, state))
+    with TestClient(create_app(env["sessions"], env["settings"])) as client:
+        row = client.get(f"/api/rooms/{env['code']}/leaderboard").json()["leaderboard"][0]
+        assert row["total_score"] is None and row["place"] is None and not row["completed"]
 
 
 def test_telegram_edit_failure_sends_saved_result_without_rescoring(env):

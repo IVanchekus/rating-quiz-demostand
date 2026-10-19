@@ -1,0 +1,3 @@
+- Backend Python 3.12+, SQLAlchemy 2.0, FastAPI, PTB 22; exact resolutions in backend/uv.lock.
+- Vue 3 + TypeScript + Vite frontend; npm lockfile. No shared ui-kit consumption.
+- Runtime MySQL 8.4 via Compose; SQLite only for quick isolated tests. SQLite cannot verify SELECT FOR UPDATE.

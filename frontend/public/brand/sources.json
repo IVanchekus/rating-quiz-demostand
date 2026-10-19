@@ -1,0 +1,17 @@
+{
+  "reference_site": "https://питерскиймостик.рф/",
+  "palette": {
+    "red": "#EF3E42",
+    "navy": "#00102E",
+    "grey": "#F4F5F7",
+    "footer": "#231F20"
+  },
+  "assets": {
+    "logo-light.svg": "https://xn--e1afbaeedosdnmffj.xn--p1ai/wp-content/uploads/2024/04/logo_pm_2.svg",
+    "logo-dark.svg": "https://xn--e1afbaeedosdnmffj.xn--p1ai/wp-content/uploads/2024/04/logo_pm_3.svg",
+    "team.jpg": "https://xn--e1afbaeedosdnmffj.xn--p1ai/wp-content/uploads/2024/04/c09ad5c27ea1cfac602f2e29beb83e2d.jpeg",
+    "kievit-medium.woff2": "https://xn--e1afbaeedosdnmffj.xn--p1ai/wp-content/uploads/useanyfont/9311KievitPro-Medium.woff2",
+    "kievit-bold.woff": "https://xn--e1afbaeedosdnmffj.xn--p1ai/wp-content/uploads/2024/06/KievitPro-Bold.woff",
+    "favicon.png": "https://xn--e1afbaeedosdnmffj.xn--p1ai/wp-content/uploads/2024/07/favicon.png"
+  }
+}

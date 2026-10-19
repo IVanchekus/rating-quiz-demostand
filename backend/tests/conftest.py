@@ -26,7 +26,7 @@ class Clock:
 
 
 @pytest.fixture
-def env(tmp_path):
+def env(tmp_path, request):
     url = os.getenv("TEST_DATABASE_URL", f"sqlite:///{tmp_path / 'game.db'}")
     if make_url(url).get_backend_name() == "mysql" and not (make_url(url).database or "").endswith("_test"):
         raise RuntimeError("TEST_DATABASE_URL must use a dedicated database ending in _test")
@@ -45,7 +45,7 @@ def env(tmp_path):
             category_id=category_id, text=f"Вопрос {i}?", explanation=f"Объяснение {i}.",
             options=[{"text": "Да", "is_correct": True}, {"text": "Нет", "is_correct": False}],
         )))
-    room_id = admin.create_room(RoomInput(title="Тестовая комната"))
+    room_id = admin.create_room(RoomInput(title="Тестовая комната", questions_count=getattr(request, "param", 10)))
     admin.assign_questions(room_id, RoomQuestionsInput(question_ids=questions))
     admin.start_room(room_id)
     from app.models import Room

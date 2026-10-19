@@ -1,4 +1,5 @@
 from functools import lru_cache
+from typing import Literal
 
 from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -24,6 +25,7 @@ class Settings(BaseSettings):
     question_time_limit_seconds: int = Field(default=30, ge=1, le=3600)
     max_points_per_question: int = Field(default=100, ge=1, le=10000)
     min_correct_points: int = Field(default=0, ge=0)
+    leaderboard_poll_interval_seconds: Literal[15] = 15
     question_expiration_check_seconds: float = Field(default=5, ge=0.2)
 
     @model_validator(mode="after")

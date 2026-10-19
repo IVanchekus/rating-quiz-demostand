@@ -1,0 +1,4 @@
+- Initial local config: python3 scripts/setup_env.py (preserves existing .env).
+- Full local web runtime: docker compose up -d --build; enable real bot: docker compose --profile telegram up -d.
+- Starter bank: docker compose exec api python -m app.seed --demo-room (draft, no fake participants).
+- backend: uv sync --frozen; frontend: npm ci. See README for explicit local DB URL.

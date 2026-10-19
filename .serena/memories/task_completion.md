@@ -1,0 +1,4 @@
+- backend: uv run pytest -q. MySQL concurrency cases intentionally skip with SQLite.
+- Full locking validation: TEST_DATABASE_URL=mysql+pymysql://.../bridge_quiz_test uv run pytest -q. Test fixture drops tables; database name must end in _test.
+- frontend: npm run build (includes vue-tsc).
+- Compose integration: docker compose exec api alembic check; GET /api/health through frontend proxy. Health check for MySQL must use TCP, not bootstrap Unix socket.

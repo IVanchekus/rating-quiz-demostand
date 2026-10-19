@@ -79,14 +79,8 @@ class GameService:
                 item.delivery_lease_until = None
             log.info("participant_closed participant=%s", participant.id)
             return
-        current = session.scalar(select(ParticipantQuestion).where(
-            ParticipantQuestion.participant_id == participant.id,
-            ParticipantQuestion.position == participant.current_question_number,
-        ).with_for_update())
-        if current and current.status == "active" and now >= current.expires_at:
-            current.status = "expired"
-            current.completed_at = now
-            log.info("question_expired assignment=%s", current.id)
+        # A question's expires_at is a scoring threshold, not an answer cutoff.
+        # Only the room deadline closes an unanswered question and its buttons.
 
     def _view(self, session, participant, assignment=None):
         session.flush()
@@ -284,9 +278,6 @@ class GameService:
             now = self.clock()
             ids = list(session.scalars(select(Participant.id).join(Room).where(
                 Participant.status == "playing", or_(Room.status != "active", Room.ends_at <= now),
-            )))
-            ids.extend(session.scalars(select(ParticipantQuestion.participant_id).where(
-                ParticipantQuestion.status == "active", ParticipantQuestion.expires_at <= now,
             )))
         for participant_id in sorted(set(ids)):
             with self.sessions.begin() as session:

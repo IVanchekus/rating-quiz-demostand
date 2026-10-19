@@ -53,14 +53,40 @@ def test_score_uses_server_time_and_persists_across_service_restart(env):
 
 
 @pytest.mark.parametrize("seconds", [30, 31, 120])
-def test_deadline_is_strict_and_does_not_need_worker(env, seconds):
+def test_late_correct_answer_receives_room_minimum_once(env, seconds):
+    with env["sessions"].begin() as session:
+        session.get(Room, env["room_id"]).min_correct_points = 7
     state = activate(env, enroll(env))
     env["clock"].advance(seconds=seconds)
     result = env["game"].submit_answer(123, state["assignment_id"], option(env, state))
-    assert result["question_status"] == "expired"
-    assert result["points"] == 0
+    assert result["question_status"] == "answered"
+    assert result["points"] == result["total_score"] == 7
+    assert env["game"].submit_answer(123, state["assignment_id"], option(env, state, False)) == result
     with env["sessions"]() as session:
-        assert session.scalar(select(func.count()).select_from(Answer)) == 0
+        assert session.scalar(select(func.count()).select_from(Answer)) == 1
+
+
+def test_late_wrong_answer_is_still_zero(env):
+    with env["sessions"].begin() as session:
+        session.get(Room, env["room_id"]).min_correct_points = 7
+    state = activate(env, enroll(env))
+    env["clock"].advance(seconds=90)
+    result = env["game"].submit_answer(123, state["assignment_id"], option(env, state, False))
+    assert result["question_status"] == "answered" and result["points"] == 0
+
+
+def test_worker_and_resume_keep_overdue_question_and_options(env):
+    state = activate(env, enroll(env))
+    env["clock"].advance(seconds=90)
+    env["game"].expire_due()
+    restored = GameService(env["sessions"], env["clock"]).resume(123)
+    assert restored["question_status"] == "active"
+    assert restored["assignment_id"] == state["assignment_id"]
+    assert restored["options"] == state["options"]
+    assert "correct_option" not in restored
+    assert env["game"].pending_notifications() == {"results": [], "finals": []}
+    with pytest.raises(GameError, match="Сначала ответьте"):
+        env["game"].next_question(123, state["assignment_id"])
 
 
 def test_next_double_click_does_not_skip_or_start_timer(env):
@@ -155,10 +181,12 @@ def test_manual_finish_and_worker_preserve_earned_score(env):
     assert env["game"].resume(123)["status"] == "expired"
 
 
-def test_expiration_notifications_are_durable(env):
+def test_answer_notifications_are_durable_after_question_time_passed(env):
     state = activate(env, enroll(env))
     env["clock"].advance(seconds=30)
     env["game"].expire_due()
+    assert not env["game"].pending_notifications()["results"]
+    env["game"].submit_answer(123, state["assignment_id"], option(env, state))
     pending = env["game"].pending_notifications()
     assert pending["results"] == [(state["assignment_id"], 123)]
     env["game"].mark_notified(123, assignment_id=state["assignment_id"])
@@ -210,6 +238,7 @@ def test_bank_must_have_enough_questions(env):
         env["admin"].start_room(room_id)
 
 
+@pytest.mark.parametrize("env", [1], indirect=True)
 def test_leaderboard_ties_use_correct_response_duration_then_join_time(env):
     a = activate(env, enroll(env, 123, "Иван"), 123)
     env["clock"].advance(milliseconds=10)
@@ -217,6 +246,8 @@ def test_leaderboard_ties_use_correct_response_duration_then_join_time(env):
     env["clock"].advance(milliseconds=10)
     env["game"].submit_answer(123, a["assignment_id"], option(env, a))
     env["game"].submit_answer(456, b["assignment_id"], option(env, b))
+    env["game"].next_question(123, a["assignment_id"])
+    env["game"].next_question(456, b["assignment_id"])
     public = LeaderboardService(env["sessions"], env["settings"], env["clock"])
     result = public.leaderboard(env["room_id"])
     assert [p["display_name"] for p in result["leaderboard"]] == ["@anna", "Иван"]
@@ -227,6 +258,58 @@ def test_leaderboard_ties_use_correct_response_duration_then_join_time(env):
 @pytest.mark.parametrize("elapsed,expected", [(0, 100), (6000, 80), (15000, 50), (29999, 0), (30000, 0), (-100, 100)])
 def test_scoring_formula(elapsed, expected):
     assert calculate_points(correct=True, elapsed_ms=elapsed, limit_seconds=30, maximum=100, minimum=0) == expected
+
+
+@pytest.mark.parametrize("elapsed", [29999, 30000, 60000, 120000])
+def test_correct_answer_never_falls_below_configured_minimum(elapsed):
+    assert calculate_points(correct=True, elapsed_ms=elapsed, limit_seconds=30, maximum=100, minimum=12) == 12
+
+
+@pytest.mark.parametrize("env", [1], indirect=True)
+def test_unfinished_players_are_below_finishers_without_score_or_place(env):
+    playing_first = activate(env, enroll(env, 123, "Первый"))
+    env["game"].submit_answer(123, playing_first["assignment_id"], option(env, playing_first))
+    finished = activate(env, enroll(env, 456, "Завершил"), 456)
+    env["clock"].advance(seconds=15)
+    env["game"].submit_answer(456, finished["assignment_id"], option(env, finished))
+    env["game"].next_question(456, finished["assignment_id"])
+    env["clock"].advance(seconds=1)
+    playing_second = enroll(env, 789, "Третий")
+    public = LeaderboardService(env["sessions"], env["settings"], env["clock"])
+    rows = public.leaderboard(env["room_id"])["leaderboard"]
+    assert [p["participant_id"] for p in rows] == [finished["participant_id"], playing_first["participant_id"], playing_second["participant_id"]]
+    assert rows[0]["place"] == 1 and rows[0]["total_score"] == 50
+    assert all(row["place"] is None and row["total_score"] is None and not row["completed"] for row in rows[1:])
+    assert public.stats(env["room_id"])["highest_score"] == 50
+    assert public.stats(env["room_id"])["average_score"] == 50
+
+
+def test_playing_order_does_not_reveal_hidden_score(env):
+    first = activate(env, enroll(env, 123, "Первый"))
+    env["clock"].advance(seconds=1)
+    second = activate(env, enroll(env, 456, "Второй"), 456)
+    env["game"].submit_answer(456, second["assignment_id"], option(env, second))
+    public = LeaderboardService(env["sessions"], env["settings"], env["clock"])
+    rows = public.leaderboard(env["room_id"])["leaderboard"]
+    assert [p["participant_id"] for p in rows] == [first["participant_id"], second["participant_id"]]
+    assert [row["total_score"] for row in rows] == [None, None]
+    assert public.stats(env["room_id"])["highest_score"] == 0
+    assert public.stats(env["room_id"])["average_score"] == 0
+
+
+@pytest.mark.parametrize("env", [1], indirect=True)
+def test_only_finished_players_receive_contiguous_places(env):
+    live = enroll(env, 123)
+    for telegram_id, delay in [(101, 15), (102, 3), (103, 9), (104, 6)]:
+        state = activate(env, enroll(env, telegram_id, str(telegram_id)), telegram_id)
+        env["clock"].advance(seconds=delay)
+        env["game"].submit_answer(telegram_id, state["assignment_id"], option(env, state))
+        env["game"].next_question(telegram_id, state["assignment_id"])
+    public = LeaderboardService(env["sessions"], env["settings"], env["clock"])
+    rows = public.leaderboard(env["room_id"])["leaderboard"]
+    assert [row["display_name"] for row in rows[:4]] == ["102", "104", "103", "101"]
+    assert [row["place"] for row in rows] == [1, 2, 3, 4, None]
+    assert rows[-1]["participant_id"] == live["participant_id"]
 
 
 def test_interactive_question_uses_own_timer(env):

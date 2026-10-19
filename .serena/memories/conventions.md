@@ -1,0 +1,4 @@
+- MySQL DATETIME(3) stores naive UTC internally; public timestamps explicitly append Z.
+- Bot presentation only consumes GameService views; never use LeaderboardService in Telegram handlers.
+- Pending assignments reserve a persisted token/60s delivery lease, then confirm delivery to start deadline. Replaying old next restores current pointer.
+- Linked questions are immutable even after room finish; new revisions are copies. Migration schema is frozen independently from mutable ORM metadata.

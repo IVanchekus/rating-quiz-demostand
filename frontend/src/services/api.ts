@@ -8,8 +8,9 @@ export interface Room {
   min_correct_points?: number; question_ids?: number[];
 }
 export interface Player {
-  participant_id: number; place: number; display_name: string;
-  total_score: number; closed_questions: number; completed: boolean;
+  participant_id: number; place: number | null; display_name: string;
+  total_score: number | null; closed_questions: number; completed: boolean;
+  status: 'playing' | 'completed' | 'expired';
 }
 export interface Leaderboard extends Room { room_id: number; leaderboard: Player[] }
 export interface Category { id: number; name: string; slug: string; description?: string }

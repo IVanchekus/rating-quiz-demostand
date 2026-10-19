@@ -12,14 +12,11 @@ def render_state(state):
         )
     heading = f"Вопрос {state['position']} из {state['questions_count']}\n\n{state['text']}"
     if state["question_status"] in ("pending", "active"):
-        timer = f"\n\nНа ответ: до {state['time_limit_seconds']} секунд."
-        if state.get("expires_at"):
-            timer = f"\n\nОтвет принимается до {state['expires_at'][11:19]} UTC."
         keyboard = InlineKeyboardMarkup([
             [InlineKeyboardButton(o["text"], callback_data=f"answer:{state['assignment_id']}:{o['id']}")]
             for o in state["options"]
         ])
-        return heading + timer, keyboard
+        return heading, keyboard
     verdict = "⌛ Время вышло" if state["question_status"] == "expired" else (
         "✅ Правильно" if state["is_correct"] else "❌ Неправильный ответ"
     )

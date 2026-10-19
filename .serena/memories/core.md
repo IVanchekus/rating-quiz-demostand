@@ -1,0 +1,4 @@
+- Project: project:rating-quiz-bot. Original specification: bridge_it_challenge_spec.md.
+- Game, delivery leases, deadlines and accepted scores are durable MySQL state shared by API/bot/worker; no in-memory gameplay source of truth.
+- Participant then assignment row lock order is invariant; enrollment additionally serializes initial registration with a room lock.
+- Operational commands: `mem:suggested_commands`; verification: `mem:task_completion`; implementation conventions: `mem:conventions`; dependency context: `mem:tech_stack`.
