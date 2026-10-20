@@ -266,6 +266,52 @@ h1 { font-size: 44px; line-height: 1.12; font-weight: 700; }
 .room-card-stats strong { font-size: 28px; color: var(--ink); margin-right: 3px; }
 .room-card-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; }
 .room-card-actions .button { padding: 9px 13px; font-size: 12px; }
+.users-toolbar, .user-detail-title { display: flex; align-items: center; justify-content: space-between; gap: 22px; margin: 28px 0 20px; }
+.users-toolbar h2, .bank-toolbar h2 { font-size: 22px; }
+.users-toolbar p { margin-top: 7px; color: var(--muted); }
+.users-toolbar .search { max-width: 340px; }
+.users-table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 18px; }
+.users-table { width: 100%; border-collapse: collapse; min-width: 850px; font-size: 14px; }
+.users-table th { padding: 15px 17px; background: var(--surface); text-align: left; color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .5px; white-space: nowrap; }
+.users-table td { padding: 16px 17px; border-top: 1px solid var(--line); white-space: nowrap; }
+.users-table td:first-child { min-width: 180px; white-space: normal; }
+.users-table td:first-child strong, .users-table td:first-child span { display: block; }
+.users-table td:first-child span { margin-top: 4px; color: var(--muted); font-size: 12px; }
+.users-table .button { padding: 8px 12px; font-size: 12px; }
+.grant-count { display: inline-grid; place-items: center; min-width: 28px; height: 28px; padding: 0 7px; border-radius: 30px; color: #3a7051; background: #e9f3ec; font-weight: 700; }
+.user-detail-heading > .button { margin: 30px 0 4px; }
+.user-detail-title { justify-content: flex-start; margin: 14px 0 26px; }
+.user-detail-title > div { flex: 1; }
+.user-detail-title h2 { overflow-wrap: anywhere; font-size: 27px; }
+.user-detail-title p { margin-top: 6px; color: var(--muted); font-size: 13px; }
+.user-detail-title > .button { margin-left: auto; }
+.user-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin-bottom: 28px; }
+.user-stats .panel { display: flex; flex-direction: column; gap: 4px; padding: 20px; border: 1px solid var(--line); border-radius: 16px; }
+.user-stats strong { font-size: 28px; }
+.user-stats span { color: var(--muted); font-size: 13px; }
+.user-history, .user-grants { overflow: hidden; margin-bottom: 24px; border: 1px solid var(--line); border-radius: 18px; }
+.attempt-card { margin: 18px; padding: 23px; border: 1px solid var(--line); border-radius: 15px; }
+.attempt-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; }
+.attempt-heading h3 { margin-top: 8px; font-size: 18px; }
+.attempt-score { display: flex; align-items: baseline; gap: 5px; white-space: nowrap; }
+.attempt-score strong { font-size: 25px; }
+.attempt-score span, .attempt-meta { color: var(--muted); font-size: 12px; }
+.attempt-meta { display: flex; flex-wrap: wrap; gap: 9px 20px; padding: 17px 0; margin-top: 15px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.attempt-questions { margin-top: 15px; }
+.attempt-questions summary { cursor: pointer; font-weight: 700; }
+.attempt-questions summary span { margin-left: 6px; color: var(--muted); font-size: 12px; }
+.attempt-question { padding: 18px 0; border-bottom: 1px solid var(--line); }
+.attempt-question:last-child { border-bottom: 0; }
+.attempt-question-title { display: flex; align-items: flex-start; gap: 11px; margin-bottom: 12px; }
+.attempt-question-title h4 { font-size: 15px; line-height: 1.45; }
+.attempt-question > p { margin-top: 8px; color: #424b59; font-size: 13px; line-height: 1.5; }
+.attempt-question > p.muted { color: var(--muted); }
+.correct-icon { display: inline-block; vertical-align: middle; color: #3a8d5f; }
+.wrong-icon { display: inline-block; vertical-align: middle; color: var(--action); }
+.user-grants > .bank-toolbar { padding: 21px 25px; border-bottom: 1px solid var(--line); }
+.grant-row { display: flex; justify-content: space-between; gap: 15px; padding: 15px 25px; border-bottom: 1px solid var(--line); font-size: 13px; }
+.grant-row:last-child { border-bottom: 0; }
+.grant-row strong { color: #3a7051; }
 .bank-toolbar { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 25px 28px; border-bottom: 1px solid var(--line); }
 .question-item { display: flex; justify-content: space-between; align-items: flex-start; gap: 20px; padding: 27px; border-bottom: 1px solid var(--line); }
 .question-item:last-child { border-bottom: 0; }
@@ -404,6 +450,10 @@ h1 { font-size: 44px; line-height: 1.12; font-weight: 700; }
   .footer-bottom { font-size: 11px; }
   .admin-page h1 { font-size: 33px; }
   .admin-toolbar { align-items: flex-start; gap: 16px; }
+  .users-table-wrap { margin-top: 12px; }
+  .user-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .user-detail-title { flex-wrap: wrap; }
+  .user-detail-title > .button { margin-left: 0; }
   .toolbar-actions { flex-wrap: wrap; justify-content: flex-end; }
   .tabs { flex-shrink: 0; }
   .tabs button { font-size: 13px; padding: 12px 15px; }
@@ -522,6 +572,18 @@ h1 { font-size: 44px; line-height: 1.12; font-weight: 700; }
   .login-panel h2 { font-size: 29px; }
   .login-panel .small { font-size: 10px; }
   .admin-toolbar { flex-direction: column; align-items: stretch; gap: 18px; }
+  .admin-toolbar .tabs { overflow-x: auto; }
+  .admin-toolbar .tabs button { padding: 11px 13px; font-size: 12px; white-space: nowrap; }
+  .users-toolbar, .user-detail-title { align-items: stretch; flex-direction: column; }
+  .users-toolbar .search { max-width: none; }
+  .user-detail-title { align-items: flex-start; gap: 12px; }
+  .user-detail-title > .button { margin-left: 0; }
+  .user-stats { gap: 9px; }
+  .user-stats .panel { padding: 15px; }
+  .attempt-card { margin: 12px; padding: 16px; }
+  .attempt-heading { flex-direction: column; }
+  .attempt-meta { flex-direction: column; gap: 7px; }
+  .grant-row { flex-direction: column; gap: 6px; }
   .tabs button { flex: 1; font-size: 14px; }
   .toolbar-actions { justify-content: flex-end; }
   .toolbar-actions .button { font-size: 13px; }

@@ -101,6 +101,18 @@ def create_app(sessions=SessionLocal, settings=None):
     def admin_room(room_id: int):
         return public.room(room_id, admin=True)
 
+    @router.get("/users")
+    def admin_users(search: str | None = None):
+        return admin.users(search)
+
+    @router.get("/users/{user_id}")
+    def admin_user(user_id: int):
+        return admin.user_detail(user_id)
+
+    @router.post("/users/{user_id}/grant")
+    def grant_user_access(user_id: int):
+        return admin.grant_user_access(user_id)
+
     @router.post("/rooms", status_code=201)
     def create_room(data: RoomInput):
         return public.room(admin.create_room(data), admin=True)

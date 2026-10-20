@@ -1,12 +1,17 @@
 import asyncio
+from datetime import timedelta
 from unittest.mock import AsyncMock
 
+import pytest
 from fastapi.testclient import TestClient
 from telegram.error import BadRequest
+from app.models import Participant, Room
+from app.schemas import RoomInput, RoomQuestionsInput
 
 from app.bot.delivery import deliver
 from app.bot.presentation import render_state
 from app.main import create_app
+from app.services.game import GameError
 from conftest import activate, enroll, option
 
 
@@ -37,6 +42,64 @@ def test_api_validation_and_room_workflow(env):
         assert client.post(f"/api/admin/rooms/{room_id}/start", headers=auth).status_code == 200
         assert client.patch(f"/api/admin/rooms/{room_id}", headers=auth, json={"title": "Change"}).status_code == 409
         assert client.post(f"/api/admin/rooms/{room_id}/finish", headers=auth).json()["status"] == "finished"
+
+
+def test_admin_user_history_and_each_grant_allows_exactly_one_replay(env):
+    first = enroll(env, telegram_id=456, name="Мария", username="maria")
+    with env["sessions"].begin() as session:
+        attempt = session.get(Participant, first["participant_id"])
+        attempt.status = "completed"
+        attempt.completed_at = env["clock"]()
+
+    auth = {"Authorization": f"Bearer {env['settings'].admin_secret}"}
+    with TestClient(create_app(env["sessions"], env["settings"])) as client:
+        assert client.get("/api/admin/users").status_code == 401
+        listed = client.get("/api/admin/users", headers=auth).json()
+        user = next(row for row in listed if row["telegram_id"] == 456)
+        assert (user["attempts_count"], user["rooms_count"], user["available_grants"]) == (1, 1, 0)
+
+        detail = client.get(f"/api/admin/users/{user['id']}", headers=auth).json()
+        assert detail["user"]["username"] == "maria"
+        assert len(detail["attempts"]) == 1
+        assert detail["attempts"][0]["questions_count"] == first["questions_count"]
+        assert detail["attempts"][0]["questions"][0]["text"].startswith("Вопрос")
+
+    second_room_id = env["admin"].create_room(RoomInput(title="Следующая комната", questions_count=10))
+    env["admin"].assign_questions(second_room_id, RoomQuestionsInput(question_ids=env["questions"]))
+    env["admin"].start_room(second_room_id)
+    with env["sessions"]() as session:
+        second_code = session.get(Room, second_room_id).join_code
+    with pytest.raises(GameError, match="выдать повторный доступ"):
+        env["game"].enroll(second_code, 456, "Мария", "maria")
+
+    auth = {"Authorization": f"Bearer {env['settings'].admin_secret}"}
+    with TestClient(create_app(env["sessions"], env["settings"])) as client:
+        assert client.post(f"/api/admin/users/{user['id']}/grant", headers=auth).json()["available"] == 1
+
+    # Returning through the old room link does not consume a grant for the next room.
+    assert env["game"].enroll(env["code"], 456, "Мария", "maria")["participant_id"] == first["participant_id"]
+    assert env["admin"].user_detail(user["id"])["grants"]["available"] == 1
+    replay = env["game"].enroll(second_code, 456, "Мария", "maria")
+    assert replay["participant_id"] != first["participant_id"]
+    with env["sessions"]() as session:
+        assert session.get(Participant, replay["participant_id"]).deadline_at == env["clock"]() + timedelta(minutes=60)
+    with env["sessions"].begin() as session:
+        session.get(Participant, replay["participant_id"]).status = "completed"
+    assert env["game"].enroll(second_code, 456, "Мария", "maria")["participant_id"] == replay["participant_id"]
+
+    third_room_id = env["admin"].create_room(RoomInput(title="Ещё одна комната", questions_count=10))
+    env["admin"].assign_questions(third_room_id, RoomQuestionsInput(question_ids=env["questions"]))
+    env["admin"].start_room(third_room_id)
+    with env["sessions"]() as session:
+        third_code = session.get(Room, third_room_id).join_code
+    with TestClient(create_app(env["sessions"], env["settings"])) as client:
+        assert client.post(f"/api/admin/users/{user['id']}/grant", headers=auth).json()["available"] == 1
+    second_replay = env["game"].enroll(third_code, 456, "Мария", "maria")
+    assert second_replay["participant_id"] not in (first["participant_id"], replay["participant_id"])
+    detail = env["admin"].user_detail(user["id"])
+    assert len(detail["attempts"]) == 3
+    assert detail["grants"]["issued"] == detail["grants"]["consumed"] == 2
+    assert detail["grants"]["available"] == 0
 
 
 def test_bot_result_keyboard_no_repeat_and_no_position(env):

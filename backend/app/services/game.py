@@ -8,12 +8,12 @@ import logging
 import secrets
 from datetime import timedelta
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.dialects.mysql import insert as mysql_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
 from app.models import (
-    Answer, Participant, ParticipantQuestion, Question, QuestionOption, Room, RoomQuestion, User, utcnow,
+    Answer, Participant, ParticipantQuestion, Question, QuestionOption, Room, RoomQuestion, User, UserAccessGrant, utcnow,
 )
 from app.services.scoring import calculate_points
 
@@ -66,7 +66,11 @@ class GameService:
     def _sync_deadlines(self, session, participant, room, now):
         if participant.status != "playing":
             return
-        if not room_is_open(room, now):
+        if participant.deadline_at is not None:
+            attempt_open = now < participant.deadline_at
+        else:
+            attempt_open = room_is_open(room, now)
+        if not attempt_open:
             participant.status = "expired"
             participant.completed_at = now
             for item in session.scalars(select(ParticipantQuestion).where(
@@ -136,39 +140,76 @@ class GameService:
             room = session.scalar(select(Room).where(Room.join_code == join_code).with_for_update())
             if not room:
                 raise GameError("Комната не найдена. Откройте ссылку из QR-кода", 404)
-            user = session.scalar(select(User).where(User.telegram_id == telegram_id))
-            participant = session.scalar(select(Participant).where(
-                Participant.room_id == room.id, Participant.user_id == user.id,
-            ).with_for_update()) if user else None
+            user = session.scalar(select(User).where(User.telegram_id == telegram_id).with_for_update())
             now = self.clock()
-            if participant:
+            if user:
                 user.username, user.first_name, user.last_name = username, first_name, last_name
-                self._sync_deadlines(session, participant, room, now)
-                return self._view(session, participant)
-            if not room_is_open(room, now):
-                raise GameError("Комната ещё не началась" if room.status == "draft" else "Комната завершена")
+                attempts = list(session.scalars(select(Participant).where(
+                    Participant.room_id == room.id, Participant.user_id == user.id,
+                ).order_by(Participant.joined_at.desc(), Participant.id.desc()).with_for_update()))
+                current = next((attempt for attempt in attempts if attempt.status == "playing"), None)
+                if current:
+                    self._sync_deadlines(session, current, room, now)
+                    return self._view(session, current)
+            else:
+                attempts = []
+                if not room_is_open(room, now):
+                    raise GameError("Комната ещё не началась" if room.status == "draft" else "Комната завершена")
             question_ids = list(session.scalars(select(Question.id).join(RoomQuestion).where(
                 RoomQuestion.room_id == room.id, Question.is_active.is_(True),
             ).order_by(Question.id)))
             if len(question_ids) < room.questions_count:
                 raise GameError("Не удалось подготовить вопросы; обратитесь к организатору")
-            # Cross-room registrations of the same Telegram account may be concurrent.
-            values = dict(telegram_id=telegram_id, first_name=first_name, username=username, last_name=last_name)
-            if session.bind.dialect.name == "mysql":
-                stmt = mysql_insert(User).values(**values)
-                session.execute(stmt.on_duplicate_key_update(
-                    first_name=first_name, username=username, last_name=last_name,
-                ))
-            else:
-                stmt = sqlite_insert(User).values(**values)
-                session.execute(stmt.on_conflict_do_update(index_elements=["telegram_id"], set_=values))
-            user = session.scalar(select(User).where(User.telegram_id == telegram_id).with_for_update())
-            participant = Participant(room_id=room.id, user_id=user.id, joined_at=now)
+            if not user:
+                # Cross-room registrations of the same Telegram account may be concurrent.
+                values = dict(telegram_id=telegram_id, first_name=first_name, username=username, last_name=last_name)
+                if session.bind.dialect.name == "mysql":
+                    stmt = mysql_insert(User).values(**values)
+                    session.execute(stmt.on_duplicate_key_update(
+                        first_name=first_name, username=username, last_name=last_name,
+                    ))
+                else:
+                    stmt = sqlite_insert(User).values(**values)
+                    session.execute(stmt.on_conflict_do_update(index_elements=["telegram_id"], set_=values))
+                user = session.scalar(select(User).where(User.telegram_id == telegram_id).with_for_update())
+                attempts = list(session.scalars(select(Participant).where(
+                    Participant.room_id == room.id, Participant.user_id == user.id,
+                ).order_by(Participant.joined_at.desc(), Participant.id.desc()).with_for_update()))
+                current = next((attempt for attempt in attempts if attempt.status == "playing"), None)
+                if current:
+                    self._sync_deadlines(session, current, room, now)
+                    return self._view(session, current)
+
+            # Existing users need an unused administrator grant for every room after their first.
+            # The user row is locked above, so two simultaneous enrollments cannot spend one grant twice.
+            has_previous_participation = session.scalar(select(Participant.id).where(
+                Participant.user_id == user.id,
+            ).limit(1)) is not None
+            grant = None
+            if has_previous_participation and not attempts and room.status != "draft":
+                grant = session.scalar(select(UserAccessGrant).where(
+                    UserAccessGrant.user_id == user.id, UserAccessGrant.used_at.is_(None),
+                ).order_by(UserAccessGrant.id).limit(1).with_for_update())
+            if attempts:
+                self._sync_deadlines(session, attempts[0], room, now)
+                return self._view(session, attempts[0])
+            if has_previous_participation and not grant:
+                if not room_is_open(room, now):
+                    raise GameError("Комната ещё не началась" if room.status == "draft" else "Комната завершена")
+                raise GameError("Для участия в новой комнате организатор должен выдать повторный доступ")
+            if not room_is_open(room, now) and not grant:
+                raise GameError("Комната ещё не началась" if room.status == "draft" else "Комната завершена")
+            participant = Participant(
+                room_id=room.id, user_id=user.id, joined_at=now,
+                deadline_at=now + timedelta(minutes=room.duration_minutes) if grant else None,
+            )
             session.add(participant)
             session.flush()
             chosen = secrets.SystemRandom().sample(question_ids, room.questions_count)
             session.add_all([ParticipantQuestion(participant_id=participant.id, question_id=q, position=i)
                              for i, q in enumerate(chosen, 1)])
+            if grant:
+                grant.used_at, grant.participant_id = now, participant.id
             log.info("participant_enrolled participant=%s room=%s", participant.id, room.id)
             return self._view(session, participant)
 
@@ -207,7 +248,8 @@ class GameService:
                 return False
             question = session.get(Question, item.question_id)
             item.sent_at = now
-            item.expires_at = min(now + timedelta(seconds=question.time_limit_seconds or room.question_time_limit_seconds), room.ends_at)
+            attempt_deadline = participant.deadline_at or room.ends_at
+            item.expires_at = min(now + timedelta(seconds=question.time_limit_seconds or room.question_time_limit_seconds), attempt_deadline)
             item.telegram_message_id = message_id
             item.status = "active"
             item.delivery_token = None
@@ -277,7 +319,10 @@ class GameService:
         with self.sessions() as session:
             now = self.clock()
             ids = list(session.scalars(select(Participant.id).join(Room).where(
-                Participant.status == "playing", or_(Room.status != "active", Room.ends_at <= now),
+                Participant.status == "playing", or_(
+                    and_(Participant.deadline_at.is_not(None), Participant.deadline_at <= now),
+                    and_(Participant.deadline_at.is_(None), or_(Room.status != "active", Room.ends_at <= now)),
+                ),
             )))
         for participant_id in sorted(set(ids)):
             with self.sessions.begin() as session:

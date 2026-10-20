@@ -109,13 +109,25 @@ class Participant(Base):
     total_score: Mapped[int] = mapped_column(Integer, default=0)
     current_question_number: Mapped[int] = mapped_column(SmallInteger, default=1)
     joined_at: Mapped[datetime] = mapped_column(DATE, default=utcnow)
+    # Granted replay gets its own clock, even after the room has closed.
+    deadline_at: Mapped[datetime | None] = mapped_column(DATE)
     completed_at: Mapped[datetime | None] = mapped_column(DATE)
     # Durable worker notification retry; no in-memory timer is authoritative.
     final_notified_at: Mapped[datetime | None] = mapped_column(DATE)
     __table_args__ = (
-        UniqueConstraint("room_id", "user_id"),
+        Index("ix_participants_room_user", "room_id", "user_id"),
         Index("ix_participants_room_score", "room_id", "total_score"),
     )
+
+
+class UserAccessGrant(Base):
+    """A one-use administrator grant allowing one additional game attempt."""
+    __tablename__ = "user_access_grants"
+    id: Mapped[int] = mapped_column(ID, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    granted_at: Mapped[datetime] = mapped_column(DATE, default=utcnow)
+    used_at: Mapped[datetime | None] = mapped_column(DATE)
+    participant_id: Mapped[int | None] = mapped_column(ForeignKey("participants.id"), unique=True)
 
 
 class ParticipantQuestion(Base):

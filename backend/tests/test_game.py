@@ -218,7 +218,7 @@ def test_active_room_settings_and_historical_questions_are_immutable(env):
         env["admin"].finish_room(env["room_id"])
 
 
-def test_same_user_may_play_in_another_room_and_names_need_not_be_unique(env):
+def test_another_room_requires_one_use_admin_grant_and_names_need_not_be_unique(env):
     first = enroll(env, username="same")
     enroll(env, 456, "Анна", "same")
     new_room = env["admin"].create_room(RoomInput(title="Другая комната"))
@@ -226,6 +226,10 @@ def test_same_user_may_play_in_another_room_and_names_need_not_be_unique(env):
     env["admin"].start_room(new_room)
     with env["sessions"]() as session:
         code = session.get(Room, new_room).join_code
+        user_id = session.scalar(select(User.id).where(User.telegram_id == 123))
+    with pytest.raises(GameError, match="выдать повторный доступ"):
+        env["game"].enroll(code, 123, "Иван", "same")
+    env["admin"].grant_user_access(user_id)
     second = env["game"].enroll(code, 123, "Иван", "same")
     assert first["participant_id"] != second["participant_id"]
     with env["sessions"]() as session:

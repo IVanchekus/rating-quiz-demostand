@@ -1,9 +1,9 @@
 import secrets
 from datetime import timedelta
 
-from sqlalchemy import delete, or_, select
+from sqlalchemy import String, case, delete, func, or_, select
 
-from app.models import Category, ParticipantQuestion, Question, QuestionOption, Room, RoomQuestion, utcnow
+from app.models import Answer, Category, Participant, ParticipantQuestion, Question, QuestionOption, Room, RoomQuestion, User, UserAccessGrant, utcnow
 from app.services.game import GameError
 
 
@@ -20,6 +20,105 @@ class AdminService:
     def _draft(self, room):
         if room.status != "draft":
             raise GameError("Настройки можно менять только в черновике")
+
+    def users(self, search=None):
+        with self.sessions() as session:
+            grants = select(
+                UserAccessGrant.user_id.label("user_id"),
+                func.sum(case((UserAccessGrant.used_at.is_(None), 1), else_=0)).label("available"),
+            ).group_by(UserAccessGrant.user_id).subquery()
+            activity = select(
+                Participant.user_id.label("user_id"),
+                func.count(func.distinct(Participant.id)).label("attempts"),
+                func.count(func.distinct(Participant.room_id)).label("rooms"),
+                func.max(Participant.joined_at).label("last_seen"),
+                func.count(func.distinct(case((Participant.status == "completed", Participant.id)))).label("completed"),
+                func.sum(case((Answer.id.is_not(None), 1), else_=0)).label("answers"),
+            ).outerjoin(ParticipantQuestion, ParticipantQuestion.participant_id == Participant.id).outerjoin(
+                Answer, Answer.participant_question_id == ParticipantQuestion.id,
+            ).group_by(Participant.user_id).subquery()
+            statement = select(User, activity.c.attempts, activity.c.rooms, activity.c.last_seen, activity.c.completed,
+                               activity.c.answers, grants.c.available).outerjoin(
+                activity, activity.c.user_id == User.id,
+            ).outerjoin(grants, grants.c.user_id == User.id)
+            if search:
+                term = f"%{search.strip()}%"
+                statement = statement.where(or_(User.username.ilike(term), User.first_name.ilike(term),
+                                                User.last_name.ilike(term), func.cast(User.telegram_id, String).like(term)))
+            rows = session.execute(statement.order_by(User.created_at.desc(), User.id.desc())).all()
+            return [dict(
+                id=user.id, telegram_id=user.telegram_id, username=user.username, first_name=user.first_name,
+                last_name=user.last_name, attempts_count=int(attempts or 0), rooms_count=int(room_count or 0),
+                completed_count=int(completed or 0),
+                answered_count=int(answers or 0), last_seen=last_seen.isoformat() + "Z" if last_seen else None,
+                available_grants=int(available or 0),
+            ) for user, attempts, room_count, last_seen, completed, answers, available in rows]
+
+    def user_detail(self, user_id):
+        with self.sessions() as session:
+            user = session.get(User, user_id)
+            if not user:
+                raise GameError("Пользователь не найден", 404)
+            grant_rows = list(session.scalars(select(UserAccessGrant).where(
+                UserAccessGrant.user_id == user_id,
+            ).order_by(UserAccessGrant.id.desc())))
+            attempts = list(session.scalars(select(Participant).where(
+                Participant.user_id == user_id,
+            ).order_by(Participant.joined_at.desc(), Participant.id.desc())))
+            history = []
+            for participant in attempts:
+                room = session.get(Room, participant.room_id)
+                assignments = list(session.scalars(select(ParticipantQuestion).where(
+                    ParticipantQuestion.participant_id == participant.id,
+                ).order_by(ParticipantQuestion.position)))
+                questions = []
+                for assignment in assignments:
+                    question = session.get(Question, assignment.question_id)
+                    options = list(session.scalars(select(QuestionOption).where(
+                        QuestionOption.question_id == question.id,
+                    ).order_by(QuestionOption.sort_order)))
+                    answer = session.scalar(select(Answer).where(Answer.participant_question_id == assignment.id))
+                    selected = next((option for option in options if answer and option.id == answer.selected_option_id), None)
+                    correct = next((option for option in options if option.is_correct), None)
+                    questions.append(dict(
+                        position=assignment.position, text=question.text, explanation=question.explanation,
+                        status=assignment.status, sent_at=assignment.sent_at.isoformat() + "Z" if assignment.sent_at else None,
+                        selected_option=selected.text if selected else None, correct_option=correct.text if correct else None,
+                        is_correct=answer.is_correct if answer else None, points=answer.points_awarded if answer else None,
+                        response_time_ms=answer.response_time_ms if answer else None,
+                    ))
+                history.append(dict(
+                    participant_id=participant.id, room_id=room.id, room_title=room.title,
+                    room_status=room.status, status=participant.status, total_score=participant.total_score,
+                    current_question_number=participant.current_question_number, questions_count=len(questions),
+                    deadline_at=participant.deadline_at.isoformat() + "Z" if participant.deadline_at else None,
+                    answered_count=sum(question["selected_option"] is not None for question in questions),
+                    joined_at=participant.joined_at.isoformat() + "Z", completed_at=participant.completed_at.isoformat() + "Z" if participant.completed_at else None,
+                    questions=questions,
+                ))
+            return dict(
+                user=dict(id=user.id, telegram_id=user.telegram_id, username=user.username,
+                          first_name=user.first_name, last_name=user.last_name,
+                          created_at=user.created_at.isoformat() + "Z"),
+                grants=dict(available=sum(grant.used_at is None for grant in grant_rows),
+                            issued=len(grant_rows), consumed=sum(grant.used_at is not None for grant in grant_rows),
+                            history=[dict(granted_at=grant.granted_at.isoformat() + "Z",
+                                          used_at=grant.used_at.isoformat() + "Z" if grant.used_at else None,
+                                          participant_id=grant.participant_id) for grant in grant_rows]),
+                attempts=history,
+            )
+
+    def grant_user_access(self, user_id):
+        with self.sessions.begin() as session:
+            user = session.scalar(select(User).where(User.id == user_id).with_for_update())
+            if not user:
+                raise GameError("Пользователь не найден", 404)
+            grant = UserAccessGrant(user_id=user.id, granted_at=self.clock())
+            session.add(grant)
+            session.flush()
+            return dict(available=int(session.scalar(select(func.count()).select_from(UserAccessGrant).where(
+                UserAccessGrant.user_id == user.id, UserAccessGrant.used_at.is_(None),
+            ))), granted_at=grant.granted_at.isoformat() + "Z")
 
     def create_room(self, data):
         defaults = dict(

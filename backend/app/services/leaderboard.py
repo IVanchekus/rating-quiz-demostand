@@ -82,7 +82,10 @@ class LeaderboardService:
                 display_name=f"@{u.username}" if u.username else (u.first_name.strip() or f"Участник {p.id}"),
                 total_score=p.total_score if p.status == "completed" else None,
                 closed_questions=int(count), completed=p.status == "completed",
-                status="expired" if p.status == "playing" and result["status"] in ("finished", "cancelled") else p.status,
+                status="expired" if p.status == "playing" and (
+                    (p.deadline_at is not None and p.deadline_at <= self.clock())
+                    or (p.deadline_at is None and result["status"] in ("finished", "cancelled"))
+                ) else p.status,
             ) for place, (p, u, count) in enumerate(rows, 1)]
             return result
 

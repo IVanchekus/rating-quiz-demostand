@@ -14,6 +14,25 @@ export interface Player {
 }
 export interface Leaderboard extends Room { room_id: number; leaderboard: Player[] }
 export interface Category { id: number; name: string; slug: string; description?: string }
+export interface AdminUser {
+  id: number; telegram_id: number; username: string | null; first_name: string; last_name: string | null;
+  attempts_count: number; rooms_count: number; completed_count: number; answered_count: number;
+  last_seen: string | null; available_grants: number;
+}
+export interface UserDetail {
+  user: Pick<AdminUser, 'id' | 'telegram_id' | 'username' | 'first_name' | 'last_name'> & { created_at: string };
+  grants: { available: number; issued: number; consumed: number; history: { granted_at: string; used_at: string | null; participant_id: number | null }[] };
+  attempts: {
+    participant_id: number; room_id: number; room_title: string; room_status: string; status: string;
+    total_score: number; current_question_number: number; questions_count: number; answered_count: number;
+    joined_at: string; deadline_at: string | null; completed_at: string | null;
+    questions: {
+      position: number; text: string; explanation: string; status: string; sent_at: string | null;
+      selected_option: string | null; correct_option: string | null; is_correct: boolean | null;
+      points: number | null; response_time_ms: number | null;
+    }[];
+  }[];
+}
 export interface Question {
   id: number; category_id: number; text: string; explanation: string; company: string | null;
   difficulty: number; time_limit_seconds: number | null; is_active: boolean; locked: boolean;
