@@ -1,17 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import {
-  ArrowDown,
-  ArrowUpRight,
-  Clock3,
-  Radio,
-  RefreshCw,
-  Search,
-  Sparkles,
-  Trophy,
-  Users,
-} from '@lucide/vue'
+import { ArrowDown, Clock3, Radio, RefreshCw, Search, Sparkles, Trophy, Users } from '@lucide/vue'
 import { api, type Room } from '../services/api'
 import { splitLeaderboard } from '../services/leaderboard'
 import { useLeaderboardPolling } from '../composables/useLeaderboardPolling'
@@ -25,6 +15,7 @@ const route = useRoute(),
 const rooms = ref<Room[]>([])
 const roomError = ref('')
 const searching = ref('')
+const tablePageStatus = ref({ pageIndex: 1, pageCount: 1, secondsUntilNextPage: 0 })
 const code = computed(() => String(route.params.code || ''))
 const { data, error, loading, refresh } = useLeaderboardPolling(code)
 const groups = computed(() => splitLeaderboard(data.value?.leaderboard || []))
@@ -70,13 +61,6 @@ watch(code, () => {
 <template>
   <div class="leaderboard-page">
     <div class="page page-body">
-      <div v-if="roomError || error" class="notice error" role="alert">
-        <span>{{
-          data ? 'Не удалось обновить рейтинг. Показываем последние данные.' : roomError || error
-        }}</span>
-        <button class="text-button" @click="refresh">Повторить <RefreshCw :size="14" /></button>
-      </div>
-
       <template v-if="data">
         <div class="room-toolbar">
           <div class="room-name">
@@ -153,14 +137,16 @@ watch(code, () => {
                   Рейтинг участников <span class="count-pill">{{ data.participants_count }}</span>
                 </h2>
               </div>
-              <span class="live-label"
-                ><span class="tiny-dot"></span
+              <span class="live-label" :class="{ 'live-label--retry': error || roomError }"
+                ><span class="tiny-dot" :class="{ 'tiny-dot--retry': error || roomError }"></span
                 >{{
-                  data.status === 'finished'
-                    ? 'Итоговый рейтинг'
-                    : data.status === 'draft'
-                      ? 'Ждём начала'
-                      : 'В прямом эфире'
+                  error || roomError
+                    ? 'Попытка получить данные…'
+                    : data.status === 'finished'
+                      ? 'Итоговый рейтинг'
+                      : data.status === 'draft'
+                        ? 'Ждём начала'
+                        : 'В прямом эфире'
                 }}</span
               >
             </div>
@@ -178,26 +164,35 @@ watch(code, () => {
               </div>
             </div>
             <div class="table-toolbar">
-              <span
-                >{{ topThree.length ? 'Остальные участники' : 'Все участники' }}
-                <ArrowDown :size="14" /></span
-              ><label class="search"
-                ><Search :size="17" /><input
+              <span>
+                {{ topThree.length ? 'Остальные участники' : 'Все участники' }}
+                <ArrowDown :size="14" />
+              </span>
+              <div class="table-page-status" aria-live="off">
+                <span
+                  >Страница {{ tablePageStatus.pageIndex }} из {{ tablePageStatus.pageCount }}</span
+                >
+                <span v-if="tablePageStatus.pageCount > 1">
+                  Следующая смена через {{ tablePageStatus.secondsUntilNextPage }} сек.
+                </span>
+              </div>
+              <label class="search">
+                <Search :size="17" />
+                <input
                   v-model="searching"
                   type="search"
                   placeholder="Найти участника"
                   aria-label="Найти участника"
-              /></label>
+                />
+              </label>
             </div>
             <LeaderboardTable
               :players="filtered"
               :count="data.questions_count"
               :search="searching"
               :has-leaders="topThree.length > 0"
+              @page-status="tablePageStatus = $event"
             />
-            <div v-if="data.status === 'finished'" class="table-footer">
-              <span>Результаты зафиксированы</span>
-            </div>
           </section>
           <aside class="game-aside">
             <section v-if="data.status !== 'finished'" class="join-panel panel">
@@ -208,17 +203,6 @@ watch(code, () => {
                 <QRCode :value="data.join_url" /><span class="qr-corner top-left"></span
                 ><span class="qr-corner bottom-right"></span>
               </div>
-              <a
-                :href="data.join_url"
-                class="button primary telegram-link"
-                target="_blank"
-                rel="noopener"
-                >Открыть Telegram <ArrowUpRight :size="17"
-              /></a>
-              <div class="join-divider"></div>
-              <div class="how-step"><span>1</span>Сканируй QR-код</div>
-              <div class="how-step"><span>2</span>Отвечай на вопросы</div>
-              <div class="how-step"><span>3</span>Следи за результатом</div>
               <span class="aside-footnote">Быстрее ответ — больше баллов.</span>
             </section>
             <section v-if="data.status === 'finished'" class="fact-panel">
