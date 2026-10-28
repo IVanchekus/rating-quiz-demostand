@@ -1,11 +1,18 @@
 import asyncio
 import logging
+import random
 
 from telegram.error import BadRequest, TelegramError
 
 from app.bot.presentation import render_state
 
 log = logging.getLogger(__name__)
+COMPLETION_STICKERS = (
+    "CAACAgIAAxkBAAESHONq4beyCXZ9pOelHI5Ztqbc-MK6qQACMhQAAj6r6EtdMwJVMBohFz0E",
+    "CAACAgIAAxkBAAESHOVq4be8eDrtcZ6tbYiHDg_FCGNghQACZBQAAiK6YEgY9ZScdsA62z0E",
+    "CAACAgIAAxkBAAESHOdq4bfDq6KR3VkRUKQ16dRs1oWRMAACBRcAAsno6EsmvtEpe1IkcD0E",
+    "CAACAgIAAxkBAAESHOlq4bfKhl2MWiaYIH5nX_6Oh6g75wACbxQAAh8q8Eupmekcwm_mej0E",
+)
 
 
 async def deliver(bot, game, state):
@@ -39,6 +46,8 @@ async def deliver(bot, game, state):
             raise
     else:
         await bot.send_message(telegram_id, text, reply_markup=keyboard)
+    if state["status"] == "completed" and not state.get("final_notified"):
+        await bot.send_sticker(telegram_id, sticker=random.choice(COMPLETION_STICKERS))
     if state["status"] != "playing":
         await asyncio.to_thread(game.mark_notified, telegram_id, participant_id=state["participant_id"])
     elif state["question_status"] in ("answered", "expired"):

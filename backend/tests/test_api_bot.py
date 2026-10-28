@@ -1,14 +1,18 @@
 import asyncio
 from datetime import timedelta
-from unittest.mock import AsyncMock
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
 from telegram.error import BadRequest
-from app.models import Participant, Room
+from telegram.constants import ChatType
+from sqlalchemy import select
+from app.models import Participant, Room, User, UserAccessGrant
 from app.schemas import RoomInput, RoomQuestionsInput
 
-from app.bot.delivery import deliver
+from app.bot.delivery import COMPLETION_STICKERS, deliver
+from app.bot.main import callback
 from app.bot.presentation import render_state
 from app.main import create_app
 from app.services.game import GameError
@@ -102,9 +106,36 @@ def test_admin_user_history_and_each_grant_allows_exactly_one_replay(env):
     assert detail["grants"]["available"] == 0
 
 
+def test_admin_can_revoke_unused_grant_but_not_a_consumed_grant(env):
+    state = enroll(env, telegram_id=654, name="Ирина")
+    with env["sessions"]() as session:
+        user_id = session.scalar(select(User.id).where(User.telegram_id == 654))
+    env["admin"].grant_user_access(user_id)
+    auth = {"Authorization": f"Bearer {env['settings'].admin_secret}"}
+    with TestClient(create_app(env["sessions"], env["settings"])) as client:
+        history = client.get(f"/api/admin/users/{user_id}", headers=auth).json()["grants"]["history"]
+        grant_id = history[0]["id"]
+        response = client.delete(f"/api/admin/users/{user_id}/grants/{grant_id}", headers=auth)
+        assert response.status_code == 200
+        detail = client.get(f"/api/admin/users/{user_id}", headers=auth).json()
+        assert detail["grants"]["available"] == detail["grants"]["issued"] == 0
+
+        env["admin"].grant_user_access(user_id)
+        with env["sessions"].begin() as session:
+            grant = session.scalar(select(UserAccessGrant).where(UserAccessGrant.user_id == user_id))
+            grant.used_at = env["clock"]()
+            grant.participant_id = state["participant_id"]
+            used_grant_id = grant.id
+        response = client.delete(f"/api/admin/users/{user_id}/grants/{used_grant_id}", headers=auth)
+        assert response.status_code == 409
+        retained = client.get(f"/api/admin/users/{user_id}", headers=auth).json()["grants"]["history"]
+        assert len(retained) == 1 and retained[0]["used_at"] is not None
+
+
 def test_bot_result_keyboard_no_repeat_and_no_position(env):
     state = activate(env, enroll(env))
     text, keyboard = render_state(state)
+    assert "🧩 Вопрос" in text
     assert "На ответ:" not in text and "Ответ принимается до" not in text and "UTC" not in text
     for row in keyboard.inline_keyboard:
         assert len(row[0].callback_data.encode()) <= 64
@@ -112,9 +143,78 @@ def test_bot_result_keyboard_no_repeat_and_no_position(env):
     result = env["game"].submit_answer(123, state["assignment_id"], option(env, state))
     text, keyboard = render_state(result)
     assert "Правильный ответ: Да" in text and "Почему это правильно:" in text
+    assert all(emoji in text for emoji in ("✅", "🎯", "💡", "⭐"))
     assert len(keyboard.inline_keyboard) == 1
     assert keyboard.inline_keyboard[0][0].callback_data == f"next:{state['assignment_id']}"
     assert "место" not in text.lower() and "place" not in text.lower()
+
+
+def test_bot_incorrect_answer_shows_cross(env):
+    state = activate(env, enroll(env))
+    result = env["game"].submit_answer(123, state["assignment_id"], option(env, state, correct=False))
+    text, _ = render_state(result)
+    assert "❌ Неправильный ответ" in text and "💡 Почему это правильно:" in text
+
+
+def test_next_button_deletes_result_message_before_sending_question(env):
+    state = activate(env, enroll(env))
+    env["game"].submit_answer(123, state["assignment_id"], option(env, state))
+    message = SimpleNamespace(delete=AsyncMock(), reply_text=AsyncMock())
+    query = SimpleNamespace(
+        answer=AsyncMock(), data=f"next:{state['assignment_id']}",
+        from_user=SimpleNamespace(id=123), message=message,
+    )
+    update = SimpleNamespace(
+        callback_query=query, effective_chat=SimpleNamespace(type=ChatType.PRIVATE),
+        effective_message=message,
+    )
+    bot = AsyncMock()
+    bot.send_message.return_value = SimpleNamespace(message_id=88)
+    context = SimpleNamespace(bot=bot)
+
+    with patch("app.bot.main.game", env["game"]):
+        asyncio.run(callback(update, context))
+
+    message.delete.assert_awaited_once()
+    bot.send_message.assert_awaited_once()
+    assert "🧩 Вопрос 2" in bot.send_message.call_args.args[1]
+
+
+def test_completed_attempt_sends_one_random_completion_sticker(env):
+    state = enroll(env)
+    with env["sessions"].begin() as session:
+        participant = session.get(Participant, state["participant_id"])
+        participant.status = "completed"
+    bot = AsyncMock()
+    completed = env["game"].resume(123, state["participant_id"])
+    asyncio.run(deliver(bot, env["game"], completed))
+    asyncio.run(deliver(bot, env["game"], env["game"].resume(123, state["participant_id"])))
+    bot.send_sticker.assert_awaited_once()
+    assert bot.send_sticker.call_args.kwargs["sticker"] in COMPLETION_STICKERS
+
+
+def test_finished_room_sends_rank_and_thanks_to_every_participant_once(env):
+    for telegram_id, (name, score) in enumerate(
+        [("Первый", 120), ("Второй", 100), ("Третий", 90), ("Четвёртый", 80)], 100,
+    ):
+        state = env["game"].enroll(env["code"], telegram_id, name)
+        with env["sessions"].begin() as session:
+            participant = session.get(Participant, state["participant_id"])
+            participant.status = "completed"
+            participant.total_score = score
+    env["admin"].finish_room(env["room_id"])
+    from app.worker.expiration import tick
+    bot = AsyncMock()
+    asyncio.run(tick(env["game"], bot))
+    rank_messages = [call.args[1] for call in bot.send_message.call_args_list if "место" in call.args[1]]
+    assert any("Первый" in message and "1-е место" in message and "Поздравляем" in message for message in rank_messages)
+    assert any("Второй" in message and "2-е место" in message and "Поздравляем" in message for message in rank_messages)
+    assert any("Третий" in message and "3-е место" in message and "Поздравляем" in message for message in rank_messages)
+    assert any("Четвёртый" in message and "4-е место" in message for message in rank_messages), rank_messages
+    assert all("Спасибо за игру" in message for message in rank_messages)
+    message_count = bot.send_message.await_count
+    asyncio.run(tick(env["game"], bot))
+    assert bot.send_message.await_count == message_count
 
 
 def test_pending_and_overdue_bot_messages_have_no_timer_and_keep_answers(env):

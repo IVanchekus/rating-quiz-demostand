@@ -102,7 +102,7 @@ class AdminService:
                           created_at=user.created_at.isoformat() + "Z"),
                 grants=dict(available=sum(grant.used_at is None for grant in grant_rows),
                             issued=len(grant_rows), consumed=sum(grant.used_at is not None for grant in grant_rows),
-                            history=[dict(granted_at=grant.granted_at.isoformat() + "Z",
+                            history=[dict(id=grant.id, granted_at=grant.granted_at.isoformat() + "Z",
                                           used_at=grant.used_at.isoformat() + "Z" if grant.used_at else None,
                                           participant_id=grant.participant_id) for grant in grant_rows]),
                 attempts=history,
@@ -119,6 +119,23 @@ class AdminService:
             return dict(available=int(session.scalar(select(func.count()).select_from(UserAccessGrant).where(
                 UserAccessGrant.user_id == user.id, UserAccessGrant.used_at.is_(None),
             ))), granted_at=grant.granted_at.isoformat() + "Z")
+
+    def revoke_user_access(self, user_id, grant_id):
+        with self.sessions.begin() as session:
+            grant = session.scalar(select(UserAccessGrant).where(
+                UserAccessGrant.id == grant_id,
+                UserAccessGrant.user_id == user_id,
+            ).with_for_update())
+            if not grant:
+                raise GameError("Выданный доступ не найден", 404)
+            if grant.used_at is not None:
+                raise GameError("Использованный доступ нельзя забрать", 409)
+            session.delete(grant)
+            available = session.scalar(select(func.count()).select_from(UserAccessGrant).where(
+                UserAccessGrant.user_id == user_id,
+                UserAccessGrant.used_at.is_(None),
+            ))
+            return dict(available=int(available))
 
     def create_room(self, data):
         defaults = dict(
@@ -239,6 +256,7 @@ class AdminService:
             return [dict(
                 id=q.id, category_id=q.category_id, text=q.text, explanation=q.explanation,
                 company=q.company, difficulty=q.difficulty, time_limit_seconds=q.time_limit_seconds,
+                no_penalty_seconds=q.no_penalty_seconds,
                 is_active=q.is_active, locked=q.id in frozen,
                 options=[dict(id=o.id, text=o.text, is_correct=o.is_correct) for o in options if o.question_id == q.id],
             ) for q in questions]

@@ -24,7 +24,7 @@ def create_app(sessions=SessionLocal, settings=None):
     settings = settings or get_settings()
     app = FastAPI(title="Питерский мостик IT Challenge", version="1.0.0")
     app.add_middleware(CORSMiddleware, allow_origins=[s.strip() for s in settings.cors_origins.split(",") if s.strip()],
-                       allow_methods=["GET", "POST", "PATCH"], allow_headers=["Authorization", "Content-Type"])
+                       allow_methods=["GET", "POST", "PATCH", "DELETE"], allow_headers=["Authorization", "Content-Type"])
     admin = AdminService(sessions, settings)
     public = LeaderboardService(sessions, settings)
     game = GameService(sessions)
@@ -112,6 +112,10 @@ def create_app(sessions=SessionLocal, settings=None):
     @router.post("/users/{user_id}/grant")
     def grant_user_access(user_id: int):
         return admin.grant_user_access(user_id)
+
+    @router.delete("/users/{user_id}/grants/{grant_id}")
+    def revoke_user_access(user_id: int, grant_id: int):
+        return admin.revoke_user_access(user_id, grant_id)
 
     @router.post("/rooms", status_code=201)
     def create_room(data: RoomInput):

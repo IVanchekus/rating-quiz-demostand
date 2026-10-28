@@ -3,7 +3,7 @@ import logging
 
 from telegram import BotCommand, Update
 from telegram.constants import ChatType
-from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes
+from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes, MessageHandler, filters
 
 from app.bot.delivery import deliver
 from app.config import get_settings
@@ -40,8 +40,14 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             code = context.args[0]
             if not code.startswith("room_"):
                 raise GameError("Откройте ссылку из QR-кода комнаты")
-            state = await asyncio.to_thread(game.enroll, code[5:], user.id, user.first_name, user.username, user.last_name)
+            context.user_data["pending_room_code"] = code[5:]
+            await update.message.reply_text(
+                "Перед началом опроса напишите, пожалуйста, имя и фамилию через пробел.\n"
+                "Например: Иван Петров"
+            )
+            return
         else:
+            context.user_data.pop("pending_room_code", None)
             state = await asyncio.to_thread(game.resume, user.id)
         if state is None:
             await update.message.reply_text("Добро пожаловать! Отсканируйте QR-код на стойке, чтобы войти в комнату.\n\n" + HELP)
@@ -51,6 +57,35 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await deliver(context.bot, game, state)
     except GameError as error:
         await update.message.reply_text(error.message)
+
+
+async def receive_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await private(update):
+        return
+    code = context.user_data.get("pending_room_code")
+    if not code:
+        return
+    parts = (update.effective_message.text or "").split()
+    if len(parts) != 2:
+        await update.effective_message.reply_text(
+            "Введите имя и фамилию через пробел. Например: Иван Петров"
+        )
+        return
+
+    user = update.effective_user
+    try:
+        state = await asyncio.to_thread(
+            game.enroll, code, user.id, parts[0], user.username, parts[1]
+        )
+    except GameError as error:
+        context.user_data.pop("pending_room_code", None)
+        await update.effective_message.reply_text(error.message)
+        return
+
+    context.user_data.pop("pending_room_code", None)
+    if state.get("question_status") == "pending" and state.get("position") == 1:
+        await update.effective_message.reply_text(f"Добро пожаловать в «{state['room_title']}»!\n\n" + HELP)
+    await deliver(context.bot, game, state)
 
 
 async def score(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -84,11 +119,11 @@ async def callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             state = await asyncio.to_thread(game.submit_answer, query.from_user.id, int(parts[1]), int(parts[2]))
         elif parts[0] == "next" and len(parts) == 2:
             state = await asyncio.to_thread(game.next_question, query.from_user.id, int(parts[1]))
-            # The persisted state, rather than this UI update, prevents double progression.
+            # Remove the result card before sending the next question to keep the chat tidy.
             try:
-                await query.edit_message_reply_markup(reply_markup=None)
+                await query.message.delete()
             except Exception:
-                log.debug("old_keyboard_not_editable")
+                log.debug("result_message_not_deletable")
         else:
             raise GameError("Неизвестная кнопка. Повторите /start")
         await deliver(context.bot, game, state)
@@ -120,6 +155,7 @@ def main():
         raise SystemExit("Set TELEGRAM_BOT_TOKEN before starting the bot")
     app = Application.builder().token(settings.telegram_bot_token).post_init(post_init).build()
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, receive_name))
     app.add_handler(CommandHandler("score", score))
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CallbackQueryHandler(callback))

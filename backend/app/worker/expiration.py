@@ -33,6 +33,28 @@ async def tick(game, bot=None):
             await asyncio.to_thread(game.mark_notified, telegram_id, participant_id=participant_id)
         except Exception as error:
             log.warning("final_delivery_retry participant=%s type=%s", participant_id, type(error).__name__)
+    for result in await asyncio.to_thread(game.pending_room_results):
+        participant_id, telegram_id = result["participant_id"], result["telegram_id"]
+        if result["place"] is not None:
+            greeting = (
+                f"🎉 Поздравляем, {result['display_name']}! Вы заняли {result['place']}-е место "
+                f"в комнате «{result['room_title']}»! 🏆\n\nСпасибо за игру!"
+                if result["place"] <= 3 else
+                f"Спасибо за игру, {result['display_name']}! Вы заняли {result['place']}-е место "
+                f"в комнате «{result['room_title']}»."
+            )
+        else:
+            greeting = (
+                f"Спасибо за игру, {result['display_name']}! Комната «{result['room_title']}» завершена.\n"
+                f"Ваш результат: {result['total_score']} баллов."
+            )
+        try:
+            await bot.send_message(telegram_id, greeting)
+            await asyncio.to_thread(game.mark_room_result_notified, telegram_id, participant_id)
+        except Forbidden:
+            await asyncio.to_thread(game.mark_room_result_notified, telegram_id, participant_id)
+        except Exception as error:
+            log.warning("room_result_delivery_retry participant=%s type=%s", participant_id, type(error).__name__)
 
 
 async def run():

@@ -312,6 +312,8 @@ h1 { font-size: 44px; line-height: 1.12; font-weight: 700; }
 .grant-row { display: flex; justify-content: space-between; gap: 15px; padding: 15px 25px; border-bottom: 1px solid var(--line); font-size: 13px; }
 .grant-row:last-child { border-bottom: 0; }
 .grant-row strong { color: #3a7051; }
+.grant-pending { display: flex; align-items: center; justify-content: flex-end; gap: 12px; }
+.grant-revoke { padding: 7px 10px; font-size: 12px; }
 .bank-toolbar { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 25px 28px; border-bottom: 1px solid var(--line); }
 .question-item { display: flex; justify-content: space-between; align-items: flex-start; gap: 20px; padding: 27px; border-bottom: 1px solid var(--line); }
 .question-item:last-child { border-bottom: 0; }
@@ -584,6 +586,7 @@ h1 { font-size: 44px; line-height: 1.12; font-weight: 700; }
   .attempt-heading { flex-direction: column; }
   .attempt-meta { flex-direction: column; gap: 7px; }
   .grant-row { flex-direction: column; gap: 6px; }
+  .grant-pending { justify-content: space-between; }
   .tabs button { flex: 1; font-size: 14px; }
   .toolbar-actions { justify-content: flex-end; }
   .toolbar-actions .button { font-size: 13px; }

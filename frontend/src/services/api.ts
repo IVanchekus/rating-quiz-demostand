@@ -21,7 +21,7 @@ export interface AdminUser {
 }
 export interface UserDetail {
   user: Pick<AdminUser, 'id' | 'telegram_id' | 'username' | 'first_name' | 'last_name'> & { created_at: string };
-  grants: { available: number; issued: number; consumed: number; history: { granted_at: string; used_at: string | null; participant_id: number | null }[] };
+  grants: { available: number; issued: number; consumed: number; history: { id: number; granted_at: string; used_at: string | null; participant_id: number | null }[] };
   attempts: {
     participant_id: number; room_id: number; room_title: string; room_status: string; status: string;
     total_score: number; current_question_number: number; questions_count: number; answered_count: number;
@@ -35,7 +35,7 @@ export interface UserDetail {
 }
 export interface Question {
   id: number; category_id: number; text: string; explanation: string; company: string | null;
-  difficulty: number; time_limit_seconds: number | null; is_active: boolean; locked: boolean;
+  difficulty: number; time_limit_seconds: number | null; no_penalty_seconds: number; is_active: boolean; locked: boolean;
   options: { text: string; is_correct: boolean; id?: number }[];
 }
 

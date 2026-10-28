@@ -7,7 +7,7 @@ from pydantic import ValidationError
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 
-from app.models import Answer, Participant, ParticipantQuestion, Room, RoomQuestion, User
+from app.models import Answer, Participant, ParticipantQuestion, Question, Room, RoomQuestion, User
 from app.schemas import QuestionInput, RoomInput, RoomPatch, RoomQuestionsInput
 from app.services.game import GameError, GameService
 from app.services.leaderboard import LeaderboardService
@@ -64,6 +64,16 @@ def test_late_correct_answer_receives_room_minimum_once(env, seconds):
     assert env["game"].submit_answer(123, state["assignment_id"], option(env, state, False)) == result
     with env["sessions"]() as session:
         assert session.scalar(select(func.count()).select_from(Answer)) == 1
+
+
+def test_answer_scoring_waits_before_starting_to_reduce_points(env):
+    state = activate(env, enroll(env))
+    with env["sessions"].begin() as session:
+        assignment = session.get(ParticipantQuestion, state["assignment_id"])
+        session.get(Question, assignment.question_id).no_penalty_seconds = 10
+    env["clock"].advance(seconds=10)
+    result = env["game"].submit_answer(123, state["assignment_id"], option(env, state))
+    assert result["points"] == result["total_score"] == 100
 
 
 def test_late_wrong_answer_is_still_zero(env):
@@ -218,6 +228,17 @@ def test_active_room_settings_and_historical_questions_are_immutable(env):
         env["admin"].finish_room(env["room_id"])
 
 
+def test_question_no_penalty_period_is_saved_and_returned_by_admin(env):
+    payload = QuestionInput(
+        category_id=env["category_id"], text="Grace period question", explanation="Verified answer",
+        no_penalty_seconds=12,
+        options=[{"text": "A", "is_correct": True}, {"text": "B"}],
+    )
+    question_id = env["admin"].save_question(payload)
+    saved = next(q for q in env["admin"].questions() if q["id"] == question_id)
+    assert saved["no_penalty_seconds"] == 12
+
+
 def test_another_room_requires_one_use_admin_grant_and_names_need_not_be_unique(env):
     first = enroll(env, username="same")
     enroll(env, 456, "Анна", "same")
@@ -246,7 +267,7 @@ def test_bank_must_have_enough_questions(env):
 def test_leaderboard_ties_use_correct_response_duration_then_join_time(env):
     a = activate(env, enroll(env, 123, "Иван"), 123)
     env["clock"].advance(milliseconds=10)
-    b = activate(env, enroll(env, 456, "Анна", "anna"), 456)
+    b = activate(env, env["game"].enroll(env["code"], 456, "Анна", "anna", "Смирнова"), 456)
     env["clock"].advance(milliseconds=10)
     env["game"].submit_answer(123, a["assignment_id"], option(env, a))
     env["game"].submit_answer(456, b["assignment_id"], option(env, b))
@@ -254,7 +275,7 @@ def test_leaderboard_ties_use_correct_response_duration_then_join_time(env):
     env["game"].next_question(456, b["assignment_id"])
     public = LeaderboardService(env["sessions"], env["settings"], env["clock"])
     result = public.leaderboard(env["room_id"])
-    assert [p["display_name"] for p in result["leaderboard"]] == ["@anna", "Иван"]
+    assert [p["display_name"] for p in result["leaderboard"]] == ["Анна Смирнова @anna", "Иван"]
     assert [p["place"] for p in result["leaderboard"]] == [1, 2]
     assert "telegram_id" not in str(result) and "explanation" not in str(result) and "is_correct" not in str(result)
 
@@ -262,6 +283,16 @@ def test_leaderboard_ties_use_correct_response_duration_then_join_time(env):
 @pytest.mark.parametrize("elapsed,expected", [(0, 100), (6000, 80), (15000, 50), (29999, 0), (30000, 0), (-100, 100)])
 def test_scoring_formula(elapsed, expected):
     assert calculate_points(correct=True, elapsed_ms=elapsed, limit_seconds=30, maximum=100, minimum=0) == expected
+
+
+@pytest.mark.parametrize("elapsed,expected", [
+    (0, 100), (10_000, 100), (16_000, 70), (20_000, 50), (30_000, 0), (40_000, 0),
+])
+def test_no_penalty_period_shifts_scoring_curve(elapsed, expected):
+    assert calculate_points(
+        correct=True, elapsed_ms=elapsed, limit_seconds=30, maximum=100, minimum=0,
+        no_penalty_seconds=10,
+    ) == expected
 
 
 @pytest.mark.parametrize("elapsed", [29999, 30000, 60000, 120000])

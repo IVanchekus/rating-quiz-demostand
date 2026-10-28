@@ -10,7 +10,7 @@ def render_state(state):
             f"Ваш результат: {state['total_score']} из {state['maximum_score']} баллов.\n\n"
             "Спасибо за участие! Итоговый рейтинг смотрите на экране мероприятия.", None,
         )
-    heading = f"Вопрос {state['position']} из {state['questions_count']}\n\n{state['text']}"
+    heading = f"🧩 Вопрос {state['position']} из {state['questions_count']}\n\n{state['text']}"
     if state["question_status"] in ("pending", "active"):
         keyboard = InlineKeyboardMarkup([
             [InlineKeyboardButton(o["text"], callback_data=f"answer:{state['assignment_id']}:{o['id']}")]
@@ -22,8 +22,8 @@ def render_state(state):
     )
     choice = f"\nВаш выбор: {state['selected_option']}" if state["selected_option"] else ""
     return (
-        f"{heading}\n\n{verdict}{choice}\nПравильный ответ: {state['correct_option']}\n\n"
-        f"Почему это правильно: {state['explanation']}\n\n"
-        f"Получено: {state['points']} из {state['max_points']} баллов",
+        f"{heading}\n\n{verdict}{choice}\n🎯 Правильный ответ: {state['correct_option']}\n\n"
+        f"💡 Почему это правильно: {state['explanation']}\n\n"
+        f"⭐ Получено: {state['points']} из {state['max_points']} баллов",
         InlineKeyboardMarkup([[InlineKeyboardButton("Далее →", callback_data=f"next:{state['assignment_id']}")]]),
     )

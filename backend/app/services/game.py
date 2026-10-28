@@ -8,7 +8,7 @@ import logging
 import secrets
 from datetime import timedelta
 
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.dialects.mysql import insert as mysql_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
@@ -100,7 +100,7 @@ class GameService:
             "status": participant.status, "total_score": participant.total_score,
             "closed_questions": closed, "questions_count": room.questions_count,
             "maximum_score": room.questions_count * room.max_points_per_question,
-            "room_title": room.title,
+            "room_title": room.title, "final_notified": participant.final_notified_at is not None,
         }
         if participant.status != "playing":
             return result
@@ -283,6 +283,7 @@ class GameService:
                 correct=option.is_correct, elapsed_ms=elapsed,
                 limit_seconds=question.time_limit_seconds or room.question_time_limit_seconds,
                 maximum=room.max_points_per_question, minimum=room.min_correct_points,
+                no_penalty_seconds=question.no_penalty_seconds,
             )
             session.add(Answer(
                 participant_question_id=item.id, selected_option_id=option.id,
@@ -349,6 +350,47 @@ class GameService:
             )))
             return {"results": results, "finals": finals}
 
+    def pending_room_results(self):
+        with self.sessions() as session:
+            completed = Participant.status == "completed"
+            speed = select(
+                ParticipantQuestion.participant_id.label("participant_id"),
+                func.sum(case((Answer.is_correct.is_(True), Answer.response_time_ms), else_=0)).label("time"),
+            ).join(Answer).group_by(ParticipantQuestion.participant_id).subquery()
+            rows = session.execute(select(
+                Participant, User, Room.title, func.coalesce(speed.c.time, 0),
+            ).join(User).join(Room).outerjoin(speed, speed.c.participant_id == Participant.id).where(
+                Room.status == "finished",
+            ).order_by(
+                Participant.room_id,
+                case((completed, 0), else_=1),
+                case((completed, Participant.total_score), else_=0).desc(),
+                case((completed, func.coalesce(speed.c.time, 0)), else_=0),
+                Participant.joined_at, Participant.id,
+            ))
+            results = []
+            last_room_id, place = None, 0
+            for participant, user, room_title, _ in rows:
+                if participant.room_id != last_room_id:
+                    last_room_id, place = participant.room_id, 0
+                if participant.status == "completed":
+                    place += 1
+                    participant_place = place
+                else:
+                    participant_place = None
+                if participant.status == "playing" or participant.room_result_notified_at is not None:
+                    continue
+                name = " ".join(filter(None, (
+                    " ".join(filter(None, (user.first_name.strip(), (user.last_name or "").strip()))),
+                    f"@{user.username}" if user.username else "",
+                ))) or f"Участник {participant.id}"
+                results.append(dict(
+                    room_id=participant.room_id, room_title=room_title,
+                    participant_id=participant.id, telegram_id=user.telegram_id,
+                    display_name=name, place=participant_place, total_score=participant.total_score,
+                ))
+            return results
+
     def mark_notified(self, telegram_id, *, assignment_id=None, participant_id=None):
         with self.sessions.begin() as session:
             if assignment_id:
@@ -357,6 +399,11 @@ class GameService:
             else:
                 participant = self._participant(session, participant_id, telegram_id)
                 participant.final_notified_at = self.clock()
+
+    def mark_room_result_notified(self, telegram_id, participant_id):
+        with self.sessions.begin() as session:
+            participant = self._participant(session, participant_id, telegram_id)
+            participant.room_result_notified_at = self.clock()
 
     def question_state(self, telegram_id, assignment_id):
         with self.sessions.begin() as session:

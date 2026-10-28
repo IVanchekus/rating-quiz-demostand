@@ -79,7 +79,10 @@ class LeaderboardService:
             result["room_id"] = room.id
             result["leaderboard"] = [dict(
                 place=place if p.status == "completed" else None, participant_id=p.id,
-                display_name=f"@{u.username}" if u.username else (u.first_name.strip() or f"Участник {p.id}"),
+                display_name=" ".join(filter(None, (
+                    " ".join(filter(None, (u.first_name.strip(), (u.last_name or "").strip()))),
+                    f"@{u.username}" if u.username else "",
+                ))) or f"Участник {p.id}",
                 total_score=p.total_score if p.status == "completed" else None,
                 closed_questions=int(count), completed=p.status == "completed",
                 status="expired" if p.status == "playing" and (
