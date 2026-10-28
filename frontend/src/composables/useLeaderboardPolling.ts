@@ -20,13 +20,18 @@ export function useLeaderboardPolling(code: Ref<string>) {
     // Ensure a stalled network request eventually permits a retry.
     const timeout = setTimeout(() => requestController.abort(), 10000)
     try {
-      const result = await api<Leaderboard>(`/rooms/${encodeURIComponent(code.value)}/leaderboard`, { signal: controller.signal })
+      const result = await api<Leaderboard>(
+        `/rooms/${encodeURIComponent(code.value)}/leaderboard`,
+        { signal: controller.signal },
+      )
       if (generation !== version) return
       data.value = result
       updatedAt.value = new Date()
       error.value = ''
     } catch (e) {
-      if (generation === version) error.value = e instanceof Error && e.name !== 'AbortError' ? e.message : 'Нет связи с сервером'
+      if (generation === version)
+        error.value =
+          e instanceof Error && e.name !== 'AbortError' ? e.message : 'Нет связи с сервером'
     } finally {
       clearTimeout(timeout)
       if (generation === version) {
@@ -39,16 +44,29 @@ export function useLeaderboardPolling(code: Ref<string>) {
     }
   }
 
-  watch(code, () => {
+  watch(
+    code,
+    () => {
+      version++
+      clearTimeout(timer)
+      controller?.abort()
+      running = false
+      data.value = null
+      error.value = ''
+      void poll(version)
+    },
+    { immediate: true },
+  )
+  onUnmounted(() => {
     version++
     clearTimeout(timer)
     controller?.abort()
-    running = false
-    data.value = null
-    error.value = ''
-    void poll(version)
-  }, { immediate: true })
-  onUnmounted(() => { version++; clearTimeout(timer); controller?.abort() })
-  function refresh() { if (!running) { clearTimeout(timer); void poll(version) } }
+  })
+  function refresh() {
+    if (!running) {
+      clearTimeout(timer)
+      void poll(version)
+    }
+  }
   return { data, error, loading, updatedAt, refresh }
 }
