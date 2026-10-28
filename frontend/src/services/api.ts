@@ -4,7 +4,7 @@ export interface Room {
   starts_at: string | null; ends_at: string | null; server_time: string;
   participants_count: number; questions_count: number; max_points_per_question: number;
   join_url: string; public_url: string;
-  duration_minutes?: number; question_time_limit_seconds?: number;
+  duration_minutes?: number; question_time_limit_seconds?: number; no_penalty_seconds?: number;
   min_correct_points?: number; question_ids?: number[];
 }
 export interface Player {
@@ -35,7 +35,7 @@ export interface UserDetail {
 }
 export interface Question {
   id: number; category_id: number; text: string; explanation: string; company: string | null;
-  difficulty: number; time_limit_seconds: number | null; no_penalty_seconds: number; is_active: boolean; locked: boolean;
+  difficulty: number; time_limit_seconds: number | null; is_active: boolean; locked: boolean;
   options: { text: string; is_correct: boolean; id?: number }[];
 }
 

@@ -95,10 +95,19 @@ class GameService:
             ParticipantQuestion.status.in_(["answered", "expired"]),
             ParticipantQuestion.sent_at.is_not(None),
         ))
+        correct_answers = 0
+        if participant.status != "playing":
+            correct_answers = session.scalar(select(func.count()).select_from(Answer).join(
+                ParticipantQuestion, ParticipantQuestion.id == Answer.participant_question_id,
+            ).where(
+                ParticipantQuestion.participant_id == participant.id,
+                Answer.is_correct.is_(True),
+            ))
         result = {
             "participant_id": participant.id, "telegram_id": user.telegram_id,
             "status": participant.status, "total_score": participant.total_score,
-            "closed_questions": closed, "questions_count": room.questions_count,
+            "closed_questions": closed, "correct_answers": correct_answers,
+            "questions_count": room.questions_count,
             "maximum_score": room.questions_count * room.max_points_per_question,
             "room_title": room.title, "final_notified": participant.final_notified_at is not None,
         }
@@ -283,7 +292,7 @@ class GameService:
                 correct=option.is_correct, elapsed_ms=elapsed,
                 limit_seconds=question.time_limit_seconds or room.question_time_limit_seconds,
                 maximum=room.max_points_per_question, minimum=room.min_correct_points,
-                no_penalty_seconds=question.no_penalty_seconds,
+                no_penalty_seconds=room.no_penalty_seconds,
             )
             session.add(Answer(
                 participant_question_id=item.id, selected_option_id=option.id,

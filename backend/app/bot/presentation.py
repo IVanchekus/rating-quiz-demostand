@@ -6,7 +6,7 @@ def render_state(state):
     if state["status"] != "playing":
         heading = "🎉 Игра завершена!" if state["status"] == "completed" else "🏁 Комната завершена!"
         return (
-            f"{heading}\n\nВы прошли {state['closed_questions']} из {state['questions_count']} вопросов.\n"
+            f"{heading}\n\nВы ответили правильно на {state['correct_answers']} из {state['questions_count']} вопросов.\n"
             f"Ваш результат: {state['total_score']} из {state['maximum_score']} баллов.\n\n"
             "Спасибо за участие! Итоговый рейтинг смотрите на экране мероприятия.", None,
         )

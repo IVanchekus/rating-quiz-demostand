@@ -49,9 +49,11 @@ class Room(Timestamps, Base):
     question_time_limit_seconds: Mapped[int] = mapped_column(Integer, default=30)
     max_points_per_question: Mapped[int] = mapped_column(SmallInteger, default=100)
     min_correct_points: Mapped[int] = mapped_column(SmallInteger, default=0)
+    no_penalty_seconds: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
     __table_args__ = (
         CheckConstraint("questions_count > 0 AND duration_minutes > 0 AND question_time_limit_seconds > 0"),
         CheckConstraint("min_correct_points >= 0 AND max_points_per_question >= min_correct_points"),
+        CheckConstraint("no_penalty_seconds BETWEEN 0 AND 3600", name="ck_rooms_no_penalty_seconds"),
     )
 
 
@@ -73,12 +75,10 @@ class Question(Timestamps, Base):
     company: Mapped[str | None] = mapped_column(Enum("svyazkom", "sensory_hub", "systematics", "galaxy", name="company"))
     difficulty: Mapped[int] = mapped_column(SmallInteger, default=1)
     time_limit_seconds: Mapped[int | None] = mapped_column(Integer)
-    no_penalty_seconds: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     __table_args__ = (
         Index("ix_questions_category_active", "category_id", "is_active"),
         CheckConstraint("difficulty BETWEEN 1 AND 5"),
-        CheckConstraint("no_penalty_seconds BETWEEN 0 AND 3600", name="ck_questions_no_penalty_seconds"),
         CheckConstraint("length(trim(explanation)) > 0"),
     )
 

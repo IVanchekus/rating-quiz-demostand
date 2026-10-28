@@ -144,6 +144,7 @@ class AdminService:
             question_time_limit_seconds=self.settings.question_time_limit_seconds,
             max_points_per_question=self.settings.max_points_per_question,
             min_correct_points=self.settings.min_correct_points,
+            no_penalty_seconds=0,
         )
         defaults.update(data.model_dump(exclude_none=True))
         if defaults["min_correct_points"] > defaults["max_points_per_question"]:
@@ -256,7 +257,6 @@ class AdminService:
             return [dict(
                 id=q.id, category_id=q.category_id, text=q.text, explanation=q.explanation,
                 company=q.company, difficulty=q.difficulty, time_limit_seconds=q.time_limit_seconds,
-                no_penalty_seconds=q.no_penalty_seconds,
                 is_active=q.is_active, locked=q.id in frozen,
                 options=[dict(id=o.id, text=o.text, is_correct=o.is_correct) for o in options if o.question_id == q.id],
             ) for q in questions]

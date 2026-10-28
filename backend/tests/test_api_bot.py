@@ -38,8 +38,9 @@ def test_api_validation_and_room_workflow(env):
     with TestClient(create_app(env["sessions"], env["settings"])) as client:
         auth = {"Authorization": f"Bearer {env['settings'].admin_secret}"}
         assert client.post("/api/admin/questions", headers=auth, json={"text": "Invalid"}).status_code == 422
-        response = client.post("/api/admin/rooms", headers=auth, json={"title": "Новая"})
+        response = client.post("/api/admin/rooms", headers=auth, json={"title": "Новая", "no_penalty_seconds": 15})
         assert response.status_code == 201
+        assert response.json()["no_penalty_seconds"] == 15
         room_id = response.json()["id"]
         assert client.post(f"/api/admin/rooms/{room_id}/start", headers=auth).status_code == 409
         assert client.post(f"/api/admin/rooms/{room_id}/questions", headers=auth, json={"category_ids": [env["category_id"]]}).json()["assigned"] == 12

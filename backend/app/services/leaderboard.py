@@ -47,6 +47,7 @@ class LeaderboardService:
                     duration_minutes=room.duration_minutes,
                     question_time_limit_seconds=room.question_time_limit_seconds,
                     min_correct_points=room.min_correct_points,
+                    no_penalty_seconds=room.no_penalty_seconds,
                     question_ids=list(session.scalars(select(RoomQuestion.question_id).where(RoomQuestion.room_id == room.id))),
                 )
             return result

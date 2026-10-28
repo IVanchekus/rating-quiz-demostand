@@ -7,6 +7,7 @@ from pydantic import ValidationError
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 
+from app.bot.presentation import render_state
 from app.models import Answer, Participant, ParticipantQuestion, Question, Room, RoomQuestion, User
 from app.schemas import QuestionInput, RoomInput, RoomPatch, RoomQuestionsInput
 from app.services.game import GameError, GameService
@@ -69,8 +70,7 @@ def test_late_correct_answer_receives_room_minimum_once(env, seconds):
 def test_answer_scoring_waits_before_starting_to_reduce_points(env):
     state = activate(env, enroll(env))
     with env["sessions"].begin() as session:
-        assignment = session.get(ParticipantQuestion, state["assignment_id"])
-        session.get(Question, assignment.question_id).no_penalty_seconds = 10
+        session.get(Room, env["room_id"]).no_penalty_seconds = 10
     env["clock"].advance(seconds=10)
     result = env["game"].submit_answer(123, state["assignment_id"], option(env, state))
     assert result["points"] == result["total_score"] == 100
@@ -164,6 +164,8 @@ def test_all_ten_questions_complete_and_old_next_is_harmless(env):
         state = env["game"].submit_answer(123, state["assignment_id"], option(env, state))
         state = env["game"].next_question(123, state["assignment_id"])
     assert state["status"] == "completed" and state["total_score"] == 1000 and state["closed_questions"] == 10
+    assert state["correct_answers"] == 10
+    assert "Вы ответили правильно на 10 из 10 вопросов." in render_state(state)[0]
     assert env["game"].next_question(123, original_id) == state
     assert enroll(env) == state
 
@@ -228,15 +230,10 @@ def test_active_room_settings_and_historical_questions_are_immutable(env):
         env["admin"].finish_room(env["room_id"])
 
 
-def test_question_no_penalty_period_is_saved_and_returned_by_admin(env):
-    payload = QuestionInput(
-        category_id=env["category_id"], text="Grace period question", explanation="Verified answer",
-        no_penalty_seconds=12,
-        options=[{"text": "A", "is_correct": True}, {"text": "B"}],
-    )
-    question_id = env["admin"].save_question(payload)
-    saved = next(q for q in env["admin"].questions() if q["id"] == question_id)
-    assert saved["no_penalty_seconds"] == 12
+def test_room_no_penalty_period_is_saved_and_returned_by_admin(env):
+    room_id = env["admin"].create_room(RoomInput(title="Grace period room", no_penalty_seconds=12))
+    public = LeaderboardService(env["sessions"], env["settings"], env["clock"])
+    assert public.room(room_id, admin=True)["no_penalty_seconds"] == 12
 
 
 def test_another_room_requires_one_use_admin_grant_and_names_need_not_be_unique(env):

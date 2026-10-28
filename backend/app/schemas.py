@@ -19,7 +19,6 @@ class QuestionInput(Input):
     company: Literal["svyazkom", "sensory_hub", "systematics", "galaxy"] | None = None
     difficulty: int = Field(default=1, ge=1, le=5)
     time_limit_seconds: int | None = Field(default=None, ge=1, le=3600)
-    no_penalty_seconds: int = Field(default=0, ge=0, le=3600)
     is_active: bool = True
     options: list[OptionInput] = Field(min_length=2, max_length=8)
 
@@ -45,6 +44,7 @@ class RoomInput(Input):
     question_time_limit_seconds: int | None = Field(default=None, ge=1, le=3600)
     max_points_per_question: int | None = Field(default=None, ge=1, le=10000)
     min_correct_points: int | None = Field(default=None, ge=0, le=10000)
+    no_penalty_seconds: int | None = Field(default=None, ge=0, le=3600)
 
 
 class RoomPatch(RoomInput):
