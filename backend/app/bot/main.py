@@ -13,7 +13,7 @@ from app.services.game import GameError, GameService
 log = logging.getLogger(__name__)
 game = GameService(SessionLocal)
 HELP = (
-    "Питерский мостик IT Challenge\n\n"
+    "🌉 Питерский мостик IT Challenge 🎉\n\n"
     "Откройте QR-ссылку комнаты и пройдите вопросы. У каждого участника своя последовательность. "
     "Выбрать ответ можно один раз. За правильный ответ баллы зависят от скорости. "
     "Поздний правильный ответ даёт минимум баллов из настроек комнаты. "
@@ -40,20 +40,40 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             code = context.args[0]
             if not code.startswith("room_"):
                 raise GameError("Откройте ссылку из QR-кода комнаты")
-            context.user_data["pending_room_code"] = code[5:]
+            join_code = code[5:]
+            saved_name = await asyncio.to_thread(game.saved_name, user.id)
+            if saved_name:
+                context.user_data.pop("pending_room_code", None)
+                state = await asyncio.to_thread(
+                    game.enroll, join_code, user.id, saved_name[0], user.username, saved_name[1]
+                )
+                if state.get("question_status") == "pending" and state.get("position") == 1:
+                    await update.message.reply_text(
+                        f"🎉 Добро пожаловать в «{state['room_title']}»! 🌉✨\n\n" + HELP
+                    )
+                await deliver(context.bot, game, state)
+                return
+
+            context.user_data["pending_room_code"] = join_code
             await update.message.reply_text(
-                "Перед началом опроса напишите, пожалуйста, имя и фамилию через пробел.\n"
-                "Например: Иван Петров"
+                "👋 Перед началом опроса напишите, пожалуйста, имя и фамилию через пробел.\n\n"
+                "📝 Например: Иван Петров"
             )
             return
         else:
             context.user_data.pop("pending_room_code", None)
             state = await asyncio.to_thread(game.resume, user.id)
         if state is None:
-            await update.message.reply_text("Добро пожаловать! Отсканируйте QR-код на стойке, чтобы войти в комнату.\n\n" + HELP)
+            await update.message.reply_text(
+                "👋🎉 Добро пожаловать! 🌉\n\n"
+                "📸 Отсканируйте QR-код на стойке, чтобы войти в комнату 🚪\n\n"
+                + HELP
+            )
         else:
             if state.get("question_status") == "pending" and state.get("position") == 1:
-                await update.message.reply_text(f"Добро пожаловать в «{state['room_title']}»!\n\n" + HELP)
+                await update.message.reply_text(
+                    f"🎉 Добро пожаловать в «{state['room_title']}»! 🌉✨\n\n" + HELP
+                )
             await deliver(context.bot, game, state)
     except GameError as error:
         await update.message.reply_text(error.message)
@@ -84,7 +104,9 @@ async def receive_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     context.user_data.pop("pending_room_code", None)
     if state.get("question_status") == "pending" and state.get("position") == 1:
-        await update.effective_message.reply_text(f"Добро пожаловать в «{state['room_title']}»!\n\n" + HELP)
+        await update.effective_message.reply_text(
+            f"🎉 Добро пожаловать в «{state['room_title']}»! 🌉✨\n\n" + HELP
+        )
     await deliver(context.bot, game, state)
 
 

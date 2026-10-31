@@ -14,8 +14,24 @@
   font-display: swap;
 }
 
+@font-face {
+  font-family: 'Manrope';
+  src: url('/brand/manrope/Manrope[wght].woff2') format('woff2');
+  font-style: normal;
+  font-weight: 200 800;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Gilroy';
+  src: url('/brand/gilroy/Gilroy-ExtraBold.woff2') format('woff2');
+  font-style: normal;
+  font-weight: 800;
+  font-display: swap;
+}
+
 :root {
-  font-family: 'Kievit', 'Segoe UI', Arial, sans-serif;
+  font-family: 'Manrope', 'Kievit', 'Segoe UI', Arial, sans-serif;
   font-size: 16px;
   font-weight: 400;
   font-synthesis: none;
@@ -707,6 +723,7 @@ h1 {
   align-items: center;
   justify-content: space-between;
   font-size: 14px;
+  font-variant-numeric: tabular-nums;
   color: #6f7684;
   font-weight: 700;
 }
@@ -2826,6 +2843,7 @@ h1 {
   padding: 0;
   color: var(--muted);
   font-size: 12px;
+  font-variant-numeric: tabular-nums;
   line-height: 1.2;
 }
 .leaderboard-page .table-page-status span:first-child {
@@ -2852,6 +2870,25 @@ h1 {
 .leaderboard-page .leaderboard-table {
   border-collapse: separate;
   border-spacing: 0;
+  table-layout: fixed;
+}
+.leaderboard-page .leaderboard-table th:first-child {
+  width: 68px;
+}
+.leaderboard-page .leaderboard-table th:nth-child(2) {
+  width: 40%;
+}
+.leaderboard-page .leaderboard-table th:nth-child(3) {
+  width: 28%;
+}
+.leaderboard-page .leaderboard-table .player-name {
+  display: block;
+  max-width: 100%;
+}
+.leaderboard-page .score-number,
+.leaderboard-page .podium-place {
+  font-family: 'Gilroy', 'Manrope', sans-serif;
+  font-weight: 800;
 }
 .leaderboard-page .leaderboard-table thead th {
   position: static;
@@ -2894,11 +2931,13 @@ h1 {
 }
 .leaderboard-page .place {
   font-size: 15px;
+  font-variant-numeric: tabular-nums;
 }
 .leaderboard-page .progress-cell,
 .leaderboard-page .score-unit,
 .leaderboard-page .pending-score {
   font-size: 14px;
+  font-variant-numeric: tabular-nums;
 }
 .leaderboard-page .table-footer {
   font-size: 13px;

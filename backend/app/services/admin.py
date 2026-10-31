@@ -226,12 +226,15 @@ class AdminService:
             if not category or not category.is_active:
                 raise GameError("Выберите активную категорию", 422)
             if question_id:
+                # Enrollment locks the room before assigning questions. Serialize edits with it.
+                list(session.scalars(select(Room).join(RoomQuestion).where(
+                    RoomQuestion.question_id == question_id,
+                ).order_by(Room.id).with_for_update()))
                 question = session.scalar(select(Question).where(Question.id == question_id).with_for_update())
                 if not question:
                     raise GameError("Вопрос не найден", 404)
-                # Freeze linked questions, including finished games, to preserve historical results.
-                if (session.scalar(select(RoomQuestion.id).where(RoomQuestion.question_id == question_id).limit(1))
-                        or session.scalar(select(ParticipantQuestion.id).where(ParticipantQuestion.question_id == question_id).limit(1))):
+                # Issued questions preserve game history; unused room links can be edited in place.
+                if session.scalar(select(ParticipantQuestion.id).where(ParticipantQuestion.question_id == question_id).limit(1)):
                     raise GameError("Вопрос используется в комнате. Создайте копию для новой редакции")
                 session.execute(delete(QuestionOption).where(QuestionOption.question_id == question_id))
                 for key, value in data.model_dump(exclude={"options"}).items():
@@ -252,8 +255,7 @@ class AdminService:
             questions = list(session.scalars(statement))
             ids = [q.id for q in questions]
             options = list(session.scalars(select(QuestionOption).where(QuestionOption.question_id.in_(ids)).order_by(QuestionOption.sort_order)))
-            frozen = set(session.scalars(select(RoomQuestion.question_id).where(RoomQuestion.question_id.in_(ids))))
-            frozen.update(session.scalars(select(ParticipantQuestion.question_id).where(ParticipantQuestion.question_id.in_(ids))))
+            frozen = set(session.scalars(select(ParticipantQuestion.question_id).where(ParticipantQuestion.question_id.in_(ids))))
             return [dict(
                 id=q.id, category_id=q.category_id, text=q.text, explanation=q.explanation,
                 company=q.company, difficulty=q.difficulty, time_limit_seconds=q.time_limit_seconds,

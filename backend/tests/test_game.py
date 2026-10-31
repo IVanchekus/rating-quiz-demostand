@@ -170,6 +170,41 @@ def test_all_ten_questions_complete_and_old_next_is_harmless(env):
     assert enroll(env) == state
 
 
+@pytest.mark.parametrize("env", [1], indirect=True)
+def test_last_answer_completes_immediately_without_next(env):
+    state = activate(env, enroll(env))
+    answer_id = option(env, state)
+    result = env["game"].submit_answer(123, state["assignment_id"], answer_id)
+    assert result["status"] == "completed"
+    assert result["closed_questions"] == result["correct_answers"] == 1
+    assert env["game"].resume(123)["status"] == "completed"
+    text, keyboard = render_state(result)
+    assert keyboard is None
+    assert result["explanation"] in text
+    assert "Игра завершена" in text
+    public = LeaderboardService(env["sessions"], env["settings"], env["clock"])
+    assert public.leaderboard(env["code"])["leaderboard"][0]["completed"]
+    repeated = env["game"].submit_answer(123, state["assignment_id"], answer_id)
+    assert repeated["total_score"] == result["total_score"]
+    with env["sessions"]() as session:
+        assert session.scalar(select(func.count()).select_from(Answer)) == 1
+
+
+def test_editing_question_linked_to_draft_preserves_id_and_count(env):
+    payload = QuestionInput(category_id=env["category_id"], text="Draft question", explanation="Why",
+                            options=[{"text": "A", "is_correct": True}, {"text": "B"}])
+    question_id = env["admin"].save_question(payload)
+    room_id = env["admin"].create_room(RoomInput(title="Draft", questions_count=1))
+    env["admin"].assign_questions(room_id, RoomQuestionsInput(question_ids=[question_id]))
+    count = len(env["admin"].questions())
+    payload.text = "Edited question"
+    assert env["admin"].save_question(payload, question_id) == question_id
+    questions = env["admin"].questions()
+    assert len(questions) == count
+    edited = next(question for question in questions if question["id"] == question_id)
+    assert edited["text"] == "Edited question" and not edited["locked"]
+
+
 def test_room_timeout_closes_remaining_questions_and_rejects_progress(env):
     state = activate(env, enroll(env))
     env["clock"].advance(seconds=3600)
@@ -220,6 +255,7 @@ def test_question_validation_requires_explanation_and_one_correct(explanation, c
 
 
 def test_active_room_settings_and_historical_questions_are_immutable(env):
+    enroll(env)
     with pytest.raises(GameError):
         env["admin"].update_room(env["room_id"], RoomPatch(title="Changed"))
     payload = QuestionInput(category_id=env["category_id"], text="New", explanation="Why",
@@ -297,14 +333,16 @@ def test_correct_answer_never_falls_below_configured_minimum(elapsed):
     assert calculate_points(correct=True, elapsed_ms=elapsed, limit_seconds=30, maximum=100, minimum=12) == 12
 
 
-@pytest.mark.parametrize("env", [1], indirect=True)
+@pytest.mark.parametrize("env", [2], indirect=True)
 def test_unfinished_players_are_below_finishers_without_score_or_place(env):
     playing_first = activate(env, enroll(env, 123, "Первый"))
     env["game"].submit_answer(123, playing_first["assignment_id"], option(env, playing_first))
     finished = activate(env, enroll(env, 456, "Завершил"), 456)
     env["clock"].advance(seconds=15)
     env["game"].submit_answer(456, finished["assignment_id"], option(env, finished))
-    env["game"].next_question(456, finished["assignment_id"])
+    last = env["game"].next_question(456, finished["assignment_id"])
+    last = activate(env, last, 456)
+    env["game"].submit_answer(456, last["assignment_id"], option(env, last, False))
     env["clock"].advance(seconds=1)
     playing_second = enroll(env, 789, "Третий")
     public = LeaderboardService(env["sessions"], env["settings"], env["clock"])

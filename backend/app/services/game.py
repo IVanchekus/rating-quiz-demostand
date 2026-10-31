@@ -40,6 +40,15 @@ class GameService:
         self.sessions = sessions
         self.clock = clock
 
+    def saved_name(self, telegram_id):
+        with self.sessions() as session:
+            user = session.scalar(select(User).where(User.telegram_id == telegram_id))
+            if not user:
+                return None
+            first_name = (user.first_name or "").strip()
+            last_name = (user.last_name or "").strip()
+            return (first_name, last_name) if first_name and last_name else None
+
     def _participant(self, session, participant_id, telegram_id=None):
         participant = session.scalar(
             select(Participant).where(Participant.id == participant_id).with_for_update()
@@ -111,7 +120,10 @@ class GameService:
             "maximum_score": room.questions_count * room.max_points_per_question,
             "room_title": room.title, "final_notified": participant.final_notified_at is not None,
         }
-        if participant.status != "playing":
+        if participant.status != "playing" and not (
+            participant.status == "completed" and assignment is not None
+            and assignment.status == "answered" and assignment.position == room.questions_count
+        ):
             return result
         if assignment is None:
             assignment = session.scalar(select(ParticipantQuestion).where(
@@ -301,6 +313,9 @@ class GameService:
             item.status = "answered"
             item.completed_at = now
             participant.total_score += points
+            if item.position == room.questions_count:
+                participant.status = "completed"
+                participant.completed_at = now
             log.info("answer_recorded assignment=%s points=%s", item.id, points)
             return self._view(session, participant, item)
 

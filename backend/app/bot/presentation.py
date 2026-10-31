@@ -5,8 +5,16 @@ def render_state(state):
     """Telegram presentation intentionally has no rank or public leaderboard data."""
     if state["status"] != "playing":
         heading = "🎉 Игра завершена!" if state["status"] == "completed" else "🏁 Комната завершена!"
+        last_answer = ""
+        if state.get("question_status") == "answered":
+            verdict = "✅ Правильно" if state["is_correct"] else "❌ Неправильный ответ"
+            last_answer = (
+                f"{verdict}\n🎯 Правильный ответ: {state['correct_option']}\n\n"
+                f"💡 Почему это правильно: {state['explanation']}\n"
+                f"⭐ Получено: {state['points']} из {state['max_points']} баллов\n\n"
+            )
         return (
-            f"{heading}\n\nВы ответили правильно на {state['correct_answers']} из {state['questions_count']} вопросов.\n"
+            f"{last_answer}{heading}\n\nВы ответили правильно на {state['correct_answers']} из {state['questions_count']} вопросов.\n"
             f"Ваш результат: {state['total_score']} из {state['maximum_score']} баллов.\n\n"
             "Спасибо за участие! Итоговый рейтинг смотрите на экране мероприятия.", None,
         )

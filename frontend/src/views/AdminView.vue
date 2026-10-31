@@ -514,10 +514,18 @@ async function copyLink(value: string) {
           </div>
           <button
             class="icon-button"
-            :aria-label="question.locked ? 'Создать копию вопроса' : 'Редактировать вопрос'"
-            @click="newQuestion(question, question.locked)"
+            aria-label="Редактировать вопрос"
+            @click="newQuestion(question)"
           >
-            <component :is="question.locked ? Copy : Pencil" :size="18" />
+            <Pencil :size="18" />
+          </button>
+          <button
+            class="icon-button"
+            aria-label="Создать копию вопроса"
+            title="Создать копию вопроса"
+            @click="newQuestion(question, true)"
+          >
+            <Copy :size="18" />
           </button>
         </article>
       </section>
@@ -597,11 +605,7 @@ async function copyLink(value: string) {
                 ><span>Завершение: {{ dateTime(attempt.completed_at) }}</span
                 ><span v-if="attempt.deadline_at"
                   >Срок этой попытки: {{ dateTime(attempt.deadline_at) }}</span
-                ><span>Ответов: {{ attempt.answered_count }} из {{ attempt.questions_count }}</span
-                ><span
-                  >Вопросов сейчас: {{ attempt.current_question_number }} из
-                  {{ attempt.questions_count }}</span
-                >
+                ><span>Ответов: {{ attempt.answered_count }} из {{ attempt.questions_count }}</span>
               </div>
               <details class="attempt-questions">
                 <summary>
